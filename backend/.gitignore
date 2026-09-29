@@ -14,3 +14,9 @@ dist/
 .env
 .env.*
 !.env.example
+
+# AI / tool-generated files
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
