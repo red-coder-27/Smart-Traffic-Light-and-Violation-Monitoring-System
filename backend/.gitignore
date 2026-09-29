@@ -20,3 +20,6 @@ dist/
 .claude/
 .windsurf/
 skills-lock.json
+
+# Generated Prisma Client
+src/generated/prisma/
