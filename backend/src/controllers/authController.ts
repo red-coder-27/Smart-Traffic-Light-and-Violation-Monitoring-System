@@ -1,0 +1,188 @@
+import bcrypt from "bcryptjs";
+import type { Request, Response } from "express";
+import jwt from "jsonwebtoken";
+import prisma from "../lib/prisma.js";
+import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
+
+const PASSWORD_MIN_LENGTH = 8;
+
+type RegisterBody = {
+    name?: unknown;
+    email?: unknown;
+    password?: unknown;
+    phone?: unknown;
+};
+
+type LoginBody = {
+    email?: unknown;
+    password?: unknown;
+};
+
+type SafeUser = {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    phone?: string | null;
+    isActive?: boolean;
+};
+
+function getJwtSecret(): string {
+    const secret = process.env.JWT_SECRET;
+
+    if (!secret) {
+        throw new Error("JWT_SECRET is not configured");
+    }
+
+    return secret;
+}
+
+function normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+}
+
+function isValidEmail(email: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function toSafeUser(user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    phone: string | null;
+    isActive: boolean;
+}, includeStatus = false): SafeUser {
+    const safeUser: SafeUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+    };
+
+    if (includeStatus) {
+        safeUser.phone = user.phone;
+        safeUser.isActive = user.isActive;
+    }
+
+    return safeUser;
+}
+
+export async function register(req: Request, res: Response): Promise<void> {
+    const body = (req.body ?? {}) as RegisterBody;
+
+    if (
+        typeof body.name !== "string" ||
+        !body.name.trim() ||
+        typeof body.email !== "string" ||
+        !isValidEmail(body.email.trim()) ||
+        typeof body.password !== "string" ||
+        body.password.length < PASSWORD_MIN_LENGTH ||
+        (body.phone !== undefined && typeof body.phone !== "string")
+    ) {
+        res.status(400).json({ success: false, message: "Invalid request data" });
+        return;
+    }
+
+    const email = normalizeEmail(body.email);
+
+    try {
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+
+        if (existingUser) {
+            res.status(409).json({ success: false, message: "Email already registered" });
+            return;
+        }
+
+        const passwordHash = await bcrypt.hash(body.password, 12);
+        const user = await prisma.user.create({
+            data: {
+                name: body.name.trim(),
+                email,
+                passwordHash,
+                phone: body.phone?.trim() || null,
+            },
+        });
+
+        res.status(201).json({
+            success: true,
+            message: "User registered successfully",
+            user: toSafeUser(user),
+        });
+    } catch (error) {
+        console.error("User registration failed:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+export async function login(req: Request, res: Response): Promise<void> {
+    const body = (req.body ?? {}) as LoginBody;
+
+    if (
+        typeof body.email !== "string" ||
+        !isValidEmail(body.email.trim()) ||
+        typeof body.password !== "string" ||
+        !body.password
+    ) {
+        res.status(400).json({ success: false, message: "Invalid request data" });
+        return;
+    }
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { email: normalizeEmail(body.email) },
+        });
+
+        if (!user || !(await bcrypt.compare(body.password, user.passwordHash))) {
+            res.status(401).json({ success: false, message: "Invalid email or password" });
+            return;
+        }
+
+        if (!user.isActive) {
+            res.status(403).json({ success: false, message: "Account is inactive" });
+            return;
+        }
+
+        const token = jwt.sign({ id: user.id, role: user.role }, getJwtSecret(), {
+            expiresIn: "1h",
+        });
+
+        res.json({
+            success: true,
+            message: "Login successful",
+            token,
+            user: toSafeUser(user),
+        });
+    } catch (error) {
+        console.error("User login failed:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+export async function getCurrentUser(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const authenticatedUser = req.authenticatedUser;
+
+    if (!authenticatedUser) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+    }
+
+    try {
+        const user = await prisma.user.findUnique({ where: { id: authenticatedUser.id } });
+
+        if (!user) {
+            res.status(404).json({ success: false, message: "User not found" });
+            return;
+        }
+
+        if (!user.isActive) {
+            res.status(403).json({ success: false, message: "Account is inactive" });
+            return;
+        }
+
+        res.json({ success: true, user: toSafeUser(user, true) });
+    } catch (error) {
+        console.error("Fetching current user failed:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
