@@ -18,6 +18,27 @@ type LoginBody = {
     password?: unknown;
 };
 
+type RegistrationUser = {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    phone: string | null;
+    isActive: boolean;
+};
+
+export type RegistrationServices = {
+    findByEmail(email: string): Promise<RegistrationUser | null>;
+    createCitizen(data: {
+        name: string;
+        email: string;
+        passwordHash: string;
+        phone: string;
+        role: "CITIZEN";
+    }): Promise<RegistrationUser>;
+    hashPassword(password: string): Promise<string>;
+};
+
 type SafeUser = {
     id: string;
     name: string;
@@ -45,6 +66,15 @@ function isValidEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function isValidPhone(phone: string): boolean {
+    const digits = phone.replace(/\D/g, "");
+    return /^[+]?[-().\s\d]+$/.test(phone) && digits.length >= 7 && digits.length <= 15;
+}
+
+function isDuplicateEmailError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
+}
+
 function toSafeUser(user: {
     id: string;
     name: string;
@@ -68,52 +98,65 @@ function toSafeUser(user: {
     return safeUser;
 }
 
-export async function register(req: Request, res: Response): Promise<void> {
-    const body = (req.body ?? {}) as RegisterBody;
+export function createRegisterHandler(services: RegistrationServices) {
+    return async function registerHandler(req: Request, res: Response): Promise<void> {
+        const body = (req.body ?? {}) as RegisterBody;
 
-    if (
-        typeof body.name !== "string" ||
-        !body.name.trim() ||
-        typeof body.email !== "string" ||
-        !isValidEmail(body.email.trim()) ||
-        typeof body.password !== "string" ||
-        body.password.length < PASSWORD_MIN_LENGTH ||
-        (body.phone !== undefined && typeof body.phone !== "string")
-    ) {
-        res.status(400).json({ success: false, message: "Invalid request data" });
-        return;
-    }
-
-    const email = normalizeEmail(body.email);
-
-    try {
-        const existingUser = await prisma.user.findUnique({ where: { email } });
-
-        if (existingUser) {
-            res.status(409).json({ success: false, message: "Email already registered" });
+        if (
+            typeof body.name !== "string" ||
+            !body.name.trim() ||
+            typeof body.email !== "string" ||
+            !isValidEmail(body.email.trim()) ||
+            typeof body.password !== "string" ||
+            body.password.length < PASSWORD_MIN_LENGTH ||
+            typeof body.phone !== "string" ||
+            !isValidPhone(body.phone.trim())
+        ) {
+            res.status(400).json({ success: false, message: "Invalid request data" });
             return;
         }
 
-        const passwordHash = await bcrypt.hash(body.password, 12);
-        const user = await prisma.user.create({
-            data: {
+        const email = normalizeEmail(body.email);
+
+        try {
+            const existingUser = await services.findByEmail(email);
+
+            if (existingUser) {
+                res.status(409).json({ success: false, message: "Email already registered" });
+                return;
+            }
+
+            const passwordHash = await services.hashPassword(body.password);
+            const user = await services.createCitizen({
                 name: body.name.trim(),
                 email,
                 passwordHash,
-                phone: body.phone?.trim() || null,
-            },
-        });
+                phone: body.phone.trim(),
+                role: "CITIZEN",
+            });
 
-        res.status(201).json({
-            success: true,
-            message: "User registered successfully",
-            user: toSafeUser(user),
-        });
-    } catch (error) {
-        console.error("User registration failed:", error);
-        res.status(500).json({ success: false, message: "Internal server error" });
-    }
+            res.status(201).json({
+                success: true,
+                message: "User registered successfully",
+                user: toSafeUser(user),
+            });
+        } catch (error) {
+            if (isDuplicateEmailError(error)) {
+                res.status(409).json({ success: false, message: "Email already registered" });
+                return;
+            }
+
+            console.error("User registration failed:", error);
+            res.status(500).json({ success: false, message: "Internal server error" });
+        }
+    };
 }
+
+export const register = createRegisterHandler({
+    findByEmail: async (email) => prisma.user.findUnique({ where: { email } }),
+    createCitizen: async (data) => prisma.user.create({ data }),
+    hashPassword: async (password) => bcrypt.hash(password, 12),
+});
 
 export async function login(req: Request, res: Response): Promise<void> {
     const body = (req.body ?? {}) as LoginBody;
