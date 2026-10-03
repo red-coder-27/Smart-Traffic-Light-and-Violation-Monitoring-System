@@ -265,6 +265,13 @@ form button span {
   gap: 14px;
 }
 
+.change-password {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
 .profile-header {
   display: flex;
   align-items: center;

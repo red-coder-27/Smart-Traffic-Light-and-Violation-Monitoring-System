@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import bcrypt from "bcryptjs";
 import type { Request, Response } from "express";
-import { createRegisterHandler, type RegistrationServices } from "./authController.js";
+import {
+    createChangePasswordHandler,
+    createRegisterHandler,
+    type ChangePasswordServices,
+    type RegistrationServices,
+} from "./authController.js";
+import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
 type RegistrationResult = {
     statusCode: number;
@@ -29,6 +35,13 @@ function makeRequest(body: Record<string, unknown>): Request {
     return { body } as Request;
 }
 
+function makeChangePasswordRequest(
+    body: Record<string, unknown>,
+    authenticatedUser = { id: "user-1", role: "CITIZEN" },
+): AuthenticatedRequest {
+    return { body, authenticatedUser } as AuthenticatedRequest;
+}
+
 function makeServices(overrides: Partial<RegistrationServices> = {}): RegistrationServices {
     return {
         findByEmail: async () => null,
@@ -41,6 +54,21 @@ function makeServices(overrides: Partial<RegistrationServices> = {}): Registrati
             isActive: true,
         }),
         hashPassword: async (password) => bcrypt.hash(password, 12),
+        ...overrides,
+    };
+}
+
+function makeChangePasswordServices(
+    overrides: Partial<ChangePasswordServices> = {},
+): ChangePasswordServices {
+    return {
+        findById: async () => ({
+            id: "user-1",
+            passwordHash: await bcrypt.hash("OldPassword@123", 12),
+        }),
+        comparePassword: async (password, passwordHash) => bcrypt.compare(password, passwordHash),
+        hashPassword: async (password) => bcrypt.hash(password, 12),
+        updatePassword: async () => {},
         ...overrides,
     };
 }
@@ -190,4 +218,73 @@ test("register maps a concurrent email uniqueness conflict to 409", async () => 
 
     assert.equal(result.statusCode, 409);
     assert.equal(result.body?.message, "Email already registered");
+});
+
+test("change password updates the authenticated user's password with a bcrypt hash", async () => {
+    let savedUserId = "";
+    let savedHash = "";
+    const changePassword = createChangePasswordHandler(makeChangePasswordServices({
+        updatePassword: async (userId, passwordHash) => {
+            savedUserId = userId;
+            savedHash = passwordHash;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await changePassword(makeChangePasswordRequest({
+        currentPassword: "OldPassword@123",
+        newPassword: "NewPassword@123",
+        userId: "attacker-controlled-id",
+    }), response);
+
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.body, {
+        success: true,
+        message: "Password changed successfully",
+    });
+    assert.equal(savedUserId, "user-1");
+    assert.notEqual(savedHash, "NewPassword@123");
+    assert.equal(await bcrypt.compare("NewPassword@123", savedHash), true);
+    assert.equal(await bcrypt.compare("OldPassword@123", savedHash), false);
+});
+
+test("change password rejects an incorrect current password", async () => {
+    const changePassword = createChangePasswordHandler(makeChangePasswordServices());
+    const { response, result } = makeResponse();
+
+    await changePassword(makeChangePasswordRequest({
+        currentPassword: "WrongPassword@123",
+        newPassword: "NewPassword@123",
+    }), response);
+
+    assert.equal(result.statusCode, 401);
+    assert.equal(result.body?.message, "Current password is incorrect");
+});
+
+test("change password validates required and new password fields", async () => {
+    const changePassword = createChangePasswordHandler(makeChangePasswordServices());
+
+    for (const body of [
+        {},
+        { newPassword: "NewPassword@123" },
+        { currentPassword: "OldPassword@123" },
+        { currentPassword: "OldPassword@123", newPassword: "short" },
+    ]) {
+        const { response, result } = makeResponse();
+        await changePassword(makeChangePasswordRequest(body), response);
+        assert.equal(result.statusCode, 400);
+    }
+});
+
+test("change password rejects the same password", async () => {
+    const changePassword = createChangePasswordHandler(makeChangePasswordServices());
+    const { response, result } = makeResponse();
+
+    await changePassword(makeChangePasswordRequest({
+        currentPassword: "OldPassword@123",
+        newPassword: "OldPassword@123",
+    }), response);
+
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body?.message, "New password must be different from the current password");
 });

@@ -18,6 +18,11 @@ type LoginBody = {
     password?: unknown;
 };
 
+type ChangePasswordBody = {
+    currentPassword?: unknown;
+    newPassword?: unknown;
+};
+
 type RegistrationUser = {
     id: string;
     name: string;
@@ -37,6 +42,13 @@ export type RegistrationServices = {
         role: "CITIZEN";
     }): Promise<RegistrationUser>;
     hashPassword(password: string): Promise<string>;
+};
+
+export type ChangePasswordServices = {
+    findById(userId: string): Promise<{ id: string; passwordHash: string } | null>;
+    comparePassword(password: string, passwordHash: string): Promise<boolean>;
+    hashPassword(password: string): Promise<string>;
+    updatePassword(userId: string, passwordHash: string): Promise<void>;
 };
 
 type SafeUser = {
@@ -156,6 +168,100 @@ export const register = createRegisterHandler({
     findByEmail: async (email) => prisma.user.findUnique({ where: { email } }),
     createCitizen: async (data) => prisma.user.create({ data }),
     hashPassword: async (password) => bcrypt.hash(password, 12),
+});
+
+export function createChangePasswordHandler(services: ChangePasswordServices) {
+    return async function changePasswordHandler(
+        req: AuthenticatedRequest,
+        res: Response,
+    ): Promise<void> {
+        const body = (req.body ?? {}) as ChangePasswordBody;
+
+        if (
+            typeof body.currentPassword !== "string" ||
+            !body.currentPassword ||
+            typeof body.newPassword !== "string" ||
+            !body.newPassword
+        ) {
+            res.status(400).json({
+                success: false,
+                message: "Current password and new password are required",
+            });
+            return;
+        }
+
+        if (body.newPassword.length < PASSWORD_MIN_LENGTH) {
+            res.status(400).json({
+                success: false,
+                message: "New password does not meet the password requirements",
+            });
+            return;
+        }
+
+        const authenticatedUser = req.authenticatedUser;
+
+        if (!authenticatedUser) {
+            res.status(401).json({ success: false, message: "Authentication required" });
+            return;
+        }
+
+        try {
+            const user = await services.findById(authenticatedUser.id);
+
+            if (!user) {
+                res.status(404).json({ success: false, message: "User not found" });
+                return;
+            }
+
+            const currentPasswordMatches = await services.comparePassword(
+                body.currentPassword,
+                user.passwordHash,
+            );
+
+            if (!currentPasswordMatches) {
+                res.status(401).json({
+                    success: false,
+                    message: "Current password is incorrect",
+                });
+                return;
+            }
+
+            if (body.newPassword === body.currentPassword) {
+                res.status(400).json({
+                    success: false,
+                    message: "New password must be different from the current password",
+                });
+                return;
+            }
+
+            const passwordHash = await services.hashPassword(body.newPassword);
+            await services.updatePassword(authenticatedUser.id, passwordHash);
+
+            res.json({
+                success: true,
+                message: "Password changed successfully",
+            });
+        } catch (error) {
+            console.error("Password change failed:", error);
+            res.status(500).json({ success: false, message: "Internal server error" });
+        }
+    };
+}
+
+export const changePassword = createChangePasswordHandler({
+    findById: async (userId) =>
+        prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, passwordHash: true },
+        }),
+    comparePassword: (password, passwordHash) => bcrypt.compare(password, passwordHash),
+    hashPassword: (password) => bcrypt.hash(password, 12),
+    updatePassword: async (userId, passwordHash) => {
+        await prisma.user.update({
+            where: { id: userId },
+            data: { passwordHash },
+        });
+    },
 });
 
 export async function login(req: Request, res: Response): Promise<void> {
