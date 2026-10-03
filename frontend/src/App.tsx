@@ -15,6 +15,12 @@ type ProfileForm = {
   dateOfBirth: string
 }
 
+type ChangePasswordForm = {
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
+}
+
 const emptyProfile: ProfileForm = {
   name: '',
   phone: '',
@@ -43,6 +49,12 @@ function App() {
   const [token, setToken] = useState(readStoredToken)
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [profile, setProfile] = useState<ProfileForm>(emptyProfile)
+  const [changePasswordForm, setChangePasswordForm] = useState<ChangePasswordForm>({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -227,6 +239,53 @@ function App() {
     }
   }
 
+  async function handleChangePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFeedback(null)
+
+    if (changePasswordForm.newPassword.length < 8) {
+      setFeedback({ kind: 'error', text: 'New password does not meet the password requirements' })
+      return
+    }
+
+    if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
+      setFeedback({ kind: 'error', text: 'New passwords do not match.' })
+      return
+    }
+
+    setChangePasswordLoading(true)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/change-password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: changePasswordForm.currentPassword,
+          newPassword: changePasswordForm.newPassword,
+        }),
+      })
+      const result = await response.json() as { message?: string }
+
+      if (!response.ok) {
+        setFeedback({
+          kind: 'error',
+          text: typeof result.message === 'string' ? result.message : 'Unable to change your password.',
+        })
+        return
+      }
+
+      setChangePasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+      setFeedback({ kind: 'success', text: 'Password changed successfully.' })
+    } catch {
+      setFeedback({ kind: 'error', text: 'Unable to reach the password service. Please try again.' })
+    } finally {
+      setChangePasswordLoading(false)
+    }
+  }
+
   return (
     <main className="page-shell">
       <header className="site-header">
@@ -317,6 +376,50 @@ function App() {
                   </button>
                 </form>
               )}
+
+              <div className="change-password">
+                <div className="profile-header">
+                  <h3>Change password</h3>
+                </div>
+                <form onSubmit={handleChangePassword}>
+                  <label htmlFor="current-password">Current password</label>
+                  <input
+                    id="current-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={changePasswordForm.currentPassword}
+                    onChange={(event) => setChangePasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                    required
+                  />
+
+                  <label htmlFor="new-password">New password</label>
+                  <input
+                    id="new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={changePasswordForm.newPassword}
+                    onChange={(event) => setChangePasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                    required
+                  />
+
+                  <label htmlFor="confirm-password">Confirm new password</label>
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    value={changePasswordForm.confirmPassword}
+                    onChange={(event) => setChangePasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                    required
+                  />
+
+                  <button type="submit" disabled={changePasswordLoading}>
+                    {changePasswordLoading ? 'Changing password…' : 'Change password'}
+                    {!changePasswordLoading && <span aria-hidden="true">→</span>}
+                  </button>
+                </form>
+              </div>
             </div>
           ) : (
             <div className="auth-stack">
