@@ -365,6 +365,10 @@ This project is developed as part of the **Software Engineering and Agile Practi
 
 ---
 
+## Development Workflow
+
+All changes should be developed on a feature branch and merged into `main` through a pull request after CI checks pass.
+
 ## 📜 License
 
 This project is developed for academic purposes.
