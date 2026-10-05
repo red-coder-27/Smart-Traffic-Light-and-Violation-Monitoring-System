@@ -168,7 +168,7 @@ The frontend is deployed from `/frontend` with:
 
 The backend is deployed from `/backend` with:
 
-- **Build Command:** `npm ci && npx prisma generate`
+- **Build Command:** `npm ci && npm run build`
 - **Pre-Deploy Command:** `npx prisma migrate deploy`
 - **Start Command:** `npm start`
 - **Health Check Path:** `/api/health`
