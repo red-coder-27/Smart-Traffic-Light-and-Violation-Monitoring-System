@@ -141,6 +141,57 @@ Production credentials are never stored in the repository or workflow. Future
 deployment workflows should use GitHub Actions secrets for production database
 URLs, JWT secrets, and hosting-provider credentials.
 
+## Deployment
+
+This section documents deployment configuration only. The application is not
+currently deployed.
+
+```text
+Browser
+  ↓
+Vercel frontend
+  ↓
+Render backend
+  ↓
+Supabase PostgreSQL
+```
+
+### Vercel
+
+The frontend is deployed from `/frontend` with:
+
+- **Build Command:** `npm run build`
+- **Output Directory:** `dist`
+- **Environment Variable:** `VITE_API_BASE_URL=<Render backend URL>`
+
+### Render
+
+The backend is deployed from `/backend` with:
+
+- **Build Command:** `npm ci && npx prisma generate`
+- **Pre-Deploy Command:** `npx prisma migrate deploy`
+- **Start Command:** `npm start`
+- **Health Check Path:** `/api/health`
+
+Configure these environment variables in the Render dashboard:
+
+- `DATABASE_URL=<Supabase pooled connection>`
+- `DIRECT_URL=<Supabase direct connection>`
+- `JWT_SECRET=<production secret>`
+- `NODE_ENV=production`
+
+Render provides `PORT` to the application. `DATABASE_URL` is used for the
+runtime connection, while `DIRECT_URL` is preferred for Prisma migration
+commands. Production migrations use:
+
+```bash
+npx prisma migrate deploy
+```
+
+Production environment variables and secrets must be configured through the
+Vercel and Render dashboards, not committed to Git. Real `.env` files and
+credentials must never be committed to the repository.
+
 ### 1. Clone the Repository
 
 ```bash

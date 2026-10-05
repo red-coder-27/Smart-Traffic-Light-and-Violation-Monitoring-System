@@ -36,7 +36,12 @@ app.get("/api/health", async (_req, res) => {
     }
 });
 
-if (process.env.NODE_ENV !== "test" && !process.argv.includes("--test")) {
+const isTestEnvironment =
+    process.env.NODE_ENV === "test" ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.includes("--test");
+
+if (!isTestEnvironment) {
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
