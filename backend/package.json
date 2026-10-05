@@ -4,8 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "tsx src/server.ts",
+    "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/controllers/authController.test.ts src/controllers/profileController.test.ts src/controllers/intersectionController.test.ts src/routes/rbacRoutes.test.ts",
     "postinstall": "prisma generate"
