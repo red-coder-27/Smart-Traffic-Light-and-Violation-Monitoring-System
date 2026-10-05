@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "dev": "tsx watch src/server.ts",
+    "typecheck": "tsc --noEmit",
     "test": "tsx --test src/controllers/authController.test.ts src/controllers/profileController.test.ts src/controllers/intersectionController.test.ts src/routes/rbacRoutes.test.ts"
   },
   "keywords": [],

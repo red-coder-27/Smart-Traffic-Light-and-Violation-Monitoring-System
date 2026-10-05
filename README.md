@@ -110,6 +110,37 @@ git --version
 
 ## 🚀 Getting Started
 
+## CI
+
+GitHub Actions runs the separate **Backend CI** and **Frontend CI** jobs for pull
+requests targeting `main` and for pushes to `main`.
+
+Backend CI installs dependencies, validates and generates Prisma Client, runs the
+TypeScript check, executes the complete backend test suite, and checks diff
+whitespace. It uses non-production CI-only PostgreSQL URLs because the current
+tests do not connect to a database. Frontend CI runs ESLint and the production
+Vite build. No deployment or production database migration is performed.
+
+To reproduce the checks locally:
+
+```bash
+cd backend
+npm ci
+npx prisma validate
+npx prisma generate
+npm run typecheck
+npm test
+
+cd ../frontend
+npm ci
+npm run lint
+npm run build
+```
+
+Production credentials are never stored in the repository or workflow. Future
+deployment workflows should use GitHub Actions secrets for production database
+URLs, JWT secrets, and hosting-provider credentials.
+
 ### 1. Clone the Repository
 
 ```bash
