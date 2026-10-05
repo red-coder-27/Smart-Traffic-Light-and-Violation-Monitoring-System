@@ -21,6 +21,31 @@ type ChangePasswordForm = {
   confirmPassword: string
 }
 
+type Intersection = {
+  id: string
+  name: string
+  location: string
+  latitude: number | null
+  longitude: number | null
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
+type IntersectionForm = {
+  name: string
+  location: string
+  latitude: string
+  longitude: string
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
+const emptyIntersection: IntersectionForm = {
+  name: '',
+  location: '',
+  latitude: '',
+  longitude: '',
+  status: 'ACTIVE',
+}
+
 const emptyProfile: ProfileForm = {
   name: '',
   phone: '',
@@ -47,6 +72,7 @@ function App() {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [password, setPassword] = useState('')
   const [token, setToken] = useState(readStoredToken)
+  const [role, setRole] = useState('')
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [profile, setProfile] = useState<ProfileForm>(emptyProfile)
   const [changePasswordForm, setChangePasswordForm] = useState<ChangePasswordForm>({
@@ -55,6 +81,11 @@ function App() {
     confirmPassword: '',
   })
   const [changePasswordLoading, setChangePasswordLoading] = useState(false)
+  const [intersections, setIntersections] = useState<Intersection[]>([])
+  const [intersectionForm, setIntersectionForm] = useState<IntersectionForm>(emptyIntersection)
+  const [editingIntersectionId, setEditingIntersectionId] = useState<string | null>(null)
+  const [intersectionLoading, setIntersectionLoading] = useState(false)
+  const [intersectionSaving, setIntersectionSaving] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -74,7 +105,7 @@ function App() {
         const result = await response.json() as {
           success?: boolean
           message?: string
-          profile?: Partial<ProfileForm> | null
+          profile?: (Partial<ProfileForm> & { role?: string }) | null
         }
 
         if (!response.ok) {
@@ -91,6 +122,7 @@ function App() {
           postalCode: String(safeProfile.postalCode ?? ''),
           dateOfBirth: String(safeProfile.dateOfBirth ?? ''),
         })
+        setRole(String(safeProfile.role ?? ''))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to load your profile.'
         setFeedback({ kind: 'error', text: message })
@@ -103,6 +135,83 @@ function App() {
 
     void fetchProfile()
   }, [token])
+
+  useEffect(() => {
+    if (!token || role !== 'ADMIN') {
+      return
+    }
+
+    const fetchIntersections = async () => {
+      setIntersectionLoading(true)
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/intersections`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const result = await response.json() as { message?: string; intersections?: Intersection[] }
+        if (!response.ok) throw new Error(result.message ?? 'Unable to load intersections.')
+        setIntersections(result.intersections ?? [])
+      } catch (error) {
+        setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to load intersections.' })
+      } finally {
+        setIntersectionLoading(false)
+      }
+    }
+
+    void fetchIntersections()
+  }, [role, token])
+
+  function beginIntersectionEdit(intersection: Intersection) {
+    setEditingIntersectionId(intersection.id)
+    setIntersectionForm({
+      name: intersection.name,
+      location: intersection.location,
+      latitude: intersection.latitude?.toString() ?? '',
+      longitude: intersection.longitude?.toString() ?? '',
+      status: intersection.status,
+    })
+  }
+
+  async function handleIntersectionSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || role !== 'ADMIN') return
+    setIntersectionSaving(true)
+    setFeedback(null)
+
+    const payload = {
+      name: intersectionForm.name,
+      location: intersectionForm.location,
+      latitude: intersectionForm.latitude ? Number(intersectionForm.latitude) : undefined,
+      longitude: intersectionForm.longitude ? Number(intersectionForm.longitude) : undefined,
+      status: intersectionForm.status,
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/intersections${editingIntersectionId ? `/${editingIntersectionId}` : ''}`,
+        {
+          method: editingIntersectionId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        },
+      )
+      const result = await response.json() as { message?: string; intersection?: Intersection }
+      if (!response.ok) throw new Error(result.message ?? 'Unable to save the intersection.')
+
+      setIntersectionForm(emptyIntersection)
+      setEditingIntersectionId(null)
+      const listResponse = await fetch(`${API_BASE_URL}/api/intersections`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const listResult = await listResponse.json() as { intersections?: Intersection[] }
+      if (!listResponse.ok) throw new Error('Intersection saved, but the list could not be refreshed.')
+      setIntersections(listResult.intersections ?? [])
+      setFeedback({ kind: 'success', text: editingIntersectionId ? 'Intersection updated successfully.' : 'Intersection created successfully.' })
+    } catch (error) {
+      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to save the intersection.' })
+    } finally {
+      setIntersectionSaving(false)
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -321,6 +430,7 @@ function App() {
                   onClick={() => {
                     window.localStorage.removeItem('trafficAuthToken')
                     setToken('')
+                    setRole('')
                     setProfile(emptyProfile)
                     setFeedback({ kind: 'success', text: 'You have been signed out.' })
                   }}
@@ -375,6 +485,56 @@ function App() {
                     {!profileSaving && <span aria-hidden="true">→</span>}
                   </button>
                 </form>
+              )}
+
+              {role === 'ADMIN' && (
+                <section className="intersection-panel" aria-labelledby="intersection-heading">
+                  <div className="profile-header">
+                    <h3 id="intersection-heading">Intersection management</h3>
+                  </div>
+                  <form className="profile-form" onSubmit={handleIntersectionSave}>
+                    <div className="profile-grid">
+                      <div className="field-block">
+                        <label htmlFor="intersection-name">Intersection name</label>
+                        <input id="intersection-name" value={intersectionForm.name} onChange={(event) => setIntersectionForm((current) => ({ ...current, name: event.target.value }))} required />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="intersection-location">Location</label>
+                        <input id="intersection-location" value={intersectionForm.location} onChange={(event) => setIntersectionForm((current) => ({ ...current, location: event.target.value }))} required />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="intersection-latitude">Latitude</label>
+                        <input id="intersection-latitude" type="number" step="any" value={intersectionForm.latitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, latitude: event.target.value }))} />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="intersection-longitude">Longitude</label>
+                        <input id="intersection-longitude" type="number" step="any" value={intersectionForm.longitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, longitude: event.target.value }))} />
+                      </div>
+                      <div className="field-block">
+                        <label htmlFor="intersection-status">Status</label>
+                        <select id="intersection-status" value={intersectionForm.status} onChange={(event) => setIntersectionForm((current) => ({ ...current, status: event.target.value as IntersectionForm['status'] }))}>
+                          <option value="ACTIVE">Active</option>
+                          <option value="INACTIVE">Inactive</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button type="submit" disabled={intersectionSaving}>
+                      {intersectionSaving ? 'Saving intersection…' : editingIntersectionId ? 'Update intersection' : 'Add intersection'}
+                    </button>
+                    {editingIntersectionId && <button type="button" className="secondary-button" onClick={() => { setEditingIntersectionId(null); setIntersectionForm(emptyIntersection) }}>Cancel</button>}
+                  </form>
+                  {intersectionLoading ? <p className="profile-status">Loading intersections…</p> : (
+                    <ul className="intersection-list">
+                      {intersections.map((intersection) => (
+                        <li key={intersection.id}>
+                          <span><strong>{intersection.name}</strong><small>{intersection.location} · {intersection.status}</small></span>
+                          <button type="button" className="secondary-button" onClick={() => beginIntersectionEdit(intersection)}>Edit</button>
+                        </li>
+                      ))}
+                      {!intersections.length && <li><span>No intersections registered yet.</span></li>}
+                    </ul>
+                  )}
+                </section>
               )}
 
               <div className="change-password">

@@ -16,6 +16,11 @@ enum Role {
   CITIZEN
 }
 
+enum IntersectionStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -30,6 +35,29 @@ model User {
   profile UserProfile?
 
   @@map("users")
+}
+
+model Intersection {
+  id        String             @id @default(uuid())
+  name      String
+  location  String
+  latitude  Float?
+  longitude Float?
+  status    IntersectionStatus @default(ACTIVE)
+  signals   TrafficSignal[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@unique([name, location])
+  @@map("intersections")
+}
+
+model TrafficSignal {
+  id             String       @id @default(uuid())
+  intersectionId String
+  intersection   Intersection @relation(fields: [intersectionId], references: [id], onDelete: Cascade)
+
+  @@map("traffic_signals")
 }
 
 model UserProfile {
