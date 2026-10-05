@@ -146,6 +146,47 @@
   box-shadow: 0 20px 55px rgb(31 41 36 / 7%);
 }
 
+.intersection-panel {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+
+.intersection-panel select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+}
+
+.intersection-list {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.intersection-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+.intersection-list strong,
+.intersection-list small {
+  display: block;
+}
+
+.intersection-list small {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
 .form-heading {
   margin-bottom: 26px;
 }

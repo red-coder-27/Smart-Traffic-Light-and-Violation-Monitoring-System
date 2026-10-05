@@ -5,6 +5,7 @@ import prisma from "./lib/prisma.js";
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import rbacRoutes from "./routes/rbacRoutes.js";
+import intersectionRoutes from "./routes/intersectionRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/rbac", rbacRoutes);
+app.use("/api/intersections", intersectionRoutes);
 
 app.get("/api/health", async (_req, res) => {
     try {
@@ -34,7 +36,7 @@ app.get("/api/health", async (_req, res) => {
     }
 });
 
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && !process.argv.includes("--test")) {
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
