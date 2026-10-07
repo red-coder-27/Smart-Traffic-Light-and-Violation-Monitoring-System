@@ -21,6 +21,12 @@ enum IntersectionStatus {
   INACTIVE
 }
 
+enum SignalStatus {
+  RED
+  YELLOW
+  GREEN
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -33,6 +39,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   profile UserProfile?
+  signalConfigChanges SignalConfigHistory[]
 
   @@map("users")
 }
@@ -53,11 +60,31 @@ model Intersection {
 }
 
 model TrafficSignal {
-  id             String       @id @default(uuid())
-  intersectionId String
-  intersection   Intersection @relation(fields: [intersectionId], references: [id], onDelete: Cascade)
+  id               String                 @id @default(uuid())
+  intersectionId   String
+  intersection     Intersection           @relation(fields: [intersectionId], references: [id], onDelete: Cascade)
+  status           SignalStatus           @default(RED)
+  greenDuration    Int                    @default(30)
+  yellowDuration   Int                    @default(5)
+  redDuration      Int                    @default(30)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  configHistory    SignalConfigHistory[]
 
   @@map("traffic_signals")
+}
+
+model SignalConfigHistory {
+  id              String       @id @default(uuid())
+  signalId        String
+  signal          TrafficSignal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  previousConfig  String?
+  newConfig       String
+  changedByUserId String?
+  changedByUser   User?        @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+
+  @@map("signal_config_history")
 }
 
 model UserProfile {

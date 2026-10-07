@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import rbacRoutes from "./routes/rbacRoutes.js";
 import intersectionRoutes from "./routes/intersectionRoutes.js";
+import trafficSignalRoutes from "./routes/trafficSignalRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,6 +17,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/rbac", rbacRoutes);
 app.use("/api/intersections", intersectionRoutes);
+app.use("/api/traffic-signals", trafficSignalRoutes);
 
 app.get("/api/health", async (_req, res) => {
     try {

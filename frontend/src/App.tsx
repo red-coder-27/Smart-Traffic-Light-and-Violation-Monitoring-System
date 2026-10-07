@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000'
@@ -36,6 +36,28 @@ type IntersectionForm = {
   latitude: string
   longitude: string
   status: 'ACTIVE' | 'INACTIVE'
+}
+
+type Signal = {
+  id: string
+  intersectionId: string
+  status: 'RED' | 'YELLOW' | 'GREEN'
+  greenDuration: number
+  yellowDuration: number
+  redDuration: number
+  intersection?: {
+    id: string
+    name: string
+    location: string
+    status: 'ACTIVE' | 'INACTIVE'
+  } | null
+}
+
+type SignalConfigForm = {
+  status: 'RED' | 'YELLOW' | 'GREEN'
+  greenDuration: string
+  yellowDuration: string
+  redDuration: string
 }
 
 const emptyIntersection: IntersectionForm = {
@@ -86,6 +108,16 @@ function App() {
   const [editingIntersectionId, setEditingIntersectionId] = useState<string | null>(null)
   const [intersectionLoading, setIntersectionLoading] = useState(false)
   const [intersectionSaving, setIntersectionSaving] = useState(false)
+  const [signals, setSignals] = useState<Signal[]>([])
+  const [signalLoading, setSignalLoading] = useState(false)
+  const [signalSaving, setSignalSaving] = useState(false)
+  const [signalForm, setSignalForm] = useState<SignalConfigForm>({
+    status: 'RED',
+    greenDuration: '30',
+    yellowDuration: '5',
+    redDuration: '30',
+  })
+  const [selectedSignalId, setSelectedSignalId] = useState<string>('')
 
   useEffect(() => {
     if (!token) {
@@ -159,6 +191,115 @@ function App() {
 
     void fetchIntersections()
   }, [role, token])
+
+  const syncSignalForm = useCallback((selected: Signal | null) => {
+    if (!selected) {
+      setSignalForm({
+        status: 'RED',
+        greenDuration: '30',
+        yellowDuration: '5',
+        redDuration: '30',
+      })
+      return
+    }
+
+    setSignalForm({
+      status: selected.status,
+      greenDuration: String(selected.greenDuration),
+      yellowDuration: String(selected.yellowDuration),
+      redDuration: String(selected.redDuration),
+    })
+  }, [])
+
+  const loadSignals = useCallback(async () => {
+    if (!token || role !== 'ADMIN') {
+      setSignals([])
+      setSelectedSignalId('')
+      syncSignalForm(null)
+      return
+    }
+
+    setSignalLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/traffic-signals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const result = await response.json() as { success?: boolean; message?: string; signals?: Signal[] }
+      if (!response.ok) throw new Error(result.message ?? 'Unable to load traffic signals.')
+
+      const nextSignals = result.signals ?? []
+      setSignals(nextSignals)
+      if (!nextSignals.length) {
+        setSelectedSignalId('')
+        syncSignalForm(null)
+        return
+      }
+
+      const nextSelectedSignalId = selectedSignalId && nextSignals.some((signal) => signal.id === selectedSignalId)
+        ? selectedSignalId
+        : nextSignals[0].id
+
+      setSelectedSignalId(nextSelectedSignalId)
+      syncSignalForm(nextSignals.find((signal) => signal.id === nextSelectedSignalId) ?? nextSignals[0])
+    } catch (error) {
+      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to load traffic signals.' })
+    } finally {
+      setSignalLoading(false)
+    }
+  }, [role, selectedSignalId, syncSignalForm, token])
+
+  useEffect(() => {
+    if (!token || role !== 'ADMIN') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const fetchSignals = async () => {
+      setSignalLoading(true)
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/traffic-signals`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        const result = await response.json() as { success?: boolean; message?: string; signals?: Signal[] }
+        if (!response.ok) throw new Error(result.message ?? 'Unable to load traffic signals.')
+
+        const nextSignals = result.signals ?? []
+        setSignals(nextSignals)
+        if (!nextSignals.length) {
+          setSelectedSignalId('')
+          syncSignalForm(null)
+          return
+        }
+
+        const nextSelectedSignalId = selectedSignalId && nextSignals.some((signal) => signal.id === selectedSignalId)
+          ? selectedSignalId
+          : nextSignals[0].id
+
+        setSelectedSignalId(nextSelectedSignalId)
+        syncSignalForm(nextSignals.find((signal) => signal.id === nextSelectedSignalId) ?? nextSignals[0])
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') {
+          return
+        }
+
+        setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to load traffic signals.' })
+      } finally {
+        if (!controller.signal.aborted) {
+          setSignalLoading(false)
+        }
+      }
+    }
+
+    void fetchSignals()
+    return () => controller.abort()
+  }, [role, selectedSignalId, syncSignalForm, token])
 
   function beginIntersectionEdit(intersection: Intersection) {
     setEditingIntersectionId(intersection.id)
@@ -395,6 +536,49 @@ function App() {
     }
   }
 
+  async function handleSignalSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || role !== 'ADMIN' || !selectedSignalId) {
+      setFeedback({ kind: 'error', text: 'Select a traffic signal before updating its timing.' })
+      return
+    }
+
+    setSignalSaving(true)
+    setFeedback(null)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/traffic-signals/${selectedSignalId}/config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: signalForm.status,
+          greenDuration: Number(signalForm.greenDuration),
+          yellowDuration: Number(signalForm.yellowDuration),
+          redDuration: Number(signalForm.redDuration),
+        }),
+      })
+
+      const result = await response.json() as { success?: boolean; message?: string; signal?: Signal }
+      if (!response.ok) {
+        setFeedback({
+          kind: 'error',
+          text: typeof result.message === 'string' ? result.message : 'Signal configuration is invalid.',
+        })
+        return
+      }
+
+      await loadSignals()
+      setFeedback({ kind: 'success', text: result.message ?? 'Signal configuration updated successfully.' })
+    } catch (error) {
+      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to update the signal configuration.' })
+    } finally {
+      setSignalSaving(false)
+    }
+  }
+
   return (
     <main className="page-shell">
       <header className="site-header">
@@ -488,53 +672,114 @@ function App() {
               )}
 
               {role === 'ADMIN' && (
-                <section className="intersection-panel" aria-labelledby="intersection-heading">
-                  <div className="profile-header">
-                    <h3 id="intersection-heading">Intersection management</h3>
-                  </div>
-                  <form className="profile-form" onSubmit={handleIntersectionSave}>
-                    <div className="profile-grid">
-                      <div className="field-block">
-                        <label htmlFor="intersection-name">Intersection name</label>
-                        <input id="intersection-name" value={intersectionForm.name} onChange={(event) => setIntersectionForm((current) => ({ ...current, name: event.target.value }))} required />
-                      </div>
-                      <div className="field-block">
-                        <label htmlFor="intersection-location">Location</label>
-                        <input id="intersection-location" value={intersectionForm.location} onChange={(event) => setIntersectionForm((current) => ({ ...current, location: event.target.value }))} required />
-                      </div>
-                      <div className="field-block">
-                        <label htmlFor="intersection-latitude">Latitude</label>
-                        <input id="intersection-latitude" type="number" step="any" value={intersectionForm.latitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, latitude: event.target.value }))} />
-                      </div>
-                      <div className="field-block">
-                        <label htmlFor="intersection-longitude">Longitude</label>
-                        <input id="intersection-longitude" type="number" step="any" value={intersectionForm.longitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, longitude: event.target.value }))} />
-                      </div>
-                      <div className="field-block">
-                        <label htmlFor="intersection-status">Status</label>
-                        <select id="intersection-status" value={intersectionForm.status} onChange={(event) => setIntersectionForm((current) => ({ ...current, status: event.target.value as IntersectionForm['status'] }))}>
-                          <option value="ACTIVE">Active</option>
-                          <option value="INACTIVE">Inactive</option>
-                        </select>
-                      </div>
+                <>
+                  <section className="intersection-panel" aria-labelledby="intersection-heading">
+                    <div className="profile-header">
+                      <h3 id="intersection-heading">Intersection management</h3>
                     </div>
-                    <button type="submit" disabled={intersectionSaving}>
-                      {intersectionSaving ? 'Saving intersection…' : editingIntersectionId ? 'Update intersection' : 'Add intersection'}
-                    </button>
-                    {editingIntersectionId && <button type="button" className="secondary-button" onClick={() => { setEditingIntersectionId(null); setIntersectionForm(emptyIntersection) }}>Cancel</button>}
-                  </form>
-                  {intersectionLoading ? <p className="profile-status">Loading intersections…</p> : (
-                    <ul className="intersection-list">
-                      {intersections.map((intersection) => (
-                        <li key={intersection.id}>
-                          <span><strong>{intersection.name}</strong><small>{intersection.location} · {intersection.status}</small></span>
-                          <button type="button" className="secondary-button" onClick={() => beginIntersectionEdit(intersection)}>Edit</button>
-                        </li>
-                      ))}
-                      {!intersections.length && <li><span>No intersections registered yet.</span></li>}
-                    </ul>
-                  )}
-                </section>
+                    <form className="profile-form" onSubmit={handleIntersectionSave}>
+                      <div className="profile-grid">
+                        <div className="field-block">
+                          <label htmlFor="intersection-name">Intersection name</label>
+                          <input id="intersection-name" value={intersectionForm.name} onChange={(event) => setIntersectionForm((current) => ({ ...current, name: event.target.value }))} required />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="intersection-location">Location</label>
+                          <input id="intersection-location" value={intersectionForm.location} onChange={(event) => setIntersectionForm((current) => ({ ...current, location: event.target.value }))} required />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="intersection-latitude">Latitude</label>
+                          <input id="intersection-latitude" type="number" step="any" value={intersectionForm.latitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, latitude: event.target.value }))} />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="intersection-longitude">Longitude</label>
+                          <input id="intersection-longitude" type="number" step="any" value={intersectionForm.longitude} onChange={(event) => setIntersectionForm((current) => ({ ...current, longitude: event.target.value }))} />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="intersection-status">Status</label>
+                          <select id="intersection-status" value={intersectionForm.status} onChange={(event) => setIntersectionForm((current) => ({ ...current, status: event.target.value as IntersectionForm['status'] }))}>
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                          </select>
+                        </div>
+                      </div>
+                      <button type="submit" disabled={intersectionSaving}>
+                        {intersectionSaving ? 'Saving intersection…' : editingIntersectionId ? 'Update intersection' : 'Add intersection'}
+                      </button>
+                      {editingIntersectionId && <button type="button" className="secondary-button" onClick={() => { setEditingIntersectionId(null); setIntersectionForm(emptyIntersection) }}>Cancel</button>}
+                    </form>
+                    {intersectionLoading ? <p className="profile-status">Loading intersections…</p> : (
+                      <ul className="intersection-list">
+                        {intersections.map((intersection) => (
+                          <li key={intersection.id}>
+                            <span><strong>{intersection.name}</strong><small>{intersection.location} · {intersection.status}</small></span>
+                            <button type="button" className="secondary-button" onClick={() => beginIntersectionEdit(intersection)}>Edit</button>
+                          </li>
+                        ))}
+                        {!intersections.length && <li><span>No intersections registered yet.</span></li>}
+                      </ul>
+                    )}
+                  </section>
+
+                  <section className="signal-panel" aria-labelledby="signal-heading">
+                    <div className="profile-header">
+                      <h3 id="signal-heading">Traffic signal management</h3>
+                    </div>
+
+                    {signalLoading ? (
+                      <p className="profile-status">Loading traffic signals…</p>
+                    ) : (
+                      <>
+                        <div className="field-block">
+                          <label htmlFor="signal-select">Signal</label>
+                          <select id="signal-select" value={selectedSignalId} onChange={(event) => setSelectedSignalId(event.target.value)}>
+                            {signals.length ? signals.map((signal) => (
+                              <option key={signal.id} value={signal.id}>
+                                {signal.intersection?.name ?? 'Signal'} · {signal.status}
+                              </option>
+                            )) : <option value="">No signals available</option>}
+                          </select>
+                        </div>
+
+                        {signals.length ? (
+                          <form className="profile-form" onSubmit={handleSignalSave}>
+                            <div className="profile-grid">
+                              <div className="field-block">
+                                <label htmlFor="signal-status">Current signal status</label>
+                                <select id="signal-status" value={signalForm.status} onChange={(event) => setSignalForm((current) => ({ ...current, status: event.target.value as SignalConfigForm['status'] }))}>
+                                  <option value="RED">RED</option>
+                                  <option value="YELLOW">YELLOW</option>
+                                  <option value="GREEN">GREEN</option>
+                                </select>
+                              </div>
+
+                              <div className="field-block">
+                                <label htmlFor="signal-green">Green duration (s)</label>
+                                <input id="signal-green" type="number" min="1" step="1" value={signalForm.greenDuration} onChange={(event) => setSignalForm((current) => ({ ...current, greenDuration: event.target.value }))} />
+                              </div>
+
+                              <div className="field-block">
+                                <label htmlFor="signal-yellow">Yellow duration (s)</label>
+                                <input id="signal-yellow" type="number" min="1" step="1" value={signalForm.yellowDuration} onChange={(event) => setSignalForm((current) => ({ ...current, yellowDuration: event.target.value }))} />
+                              </div>
+
+                              <div className="field-block">
+                                <label htmlFor="signal-red">Red duration (s)</label>
+                                <input id="signal-red" type="number" min="1" step="1" value={signalForm.redDuration} onChange={(event) => setSignalForm((current) => ({ ...current, redDuration: event.target.value }))} />
+                              </div>
+                            </div>
+
+                            <button type="submit" disabled={signalSaving}>
+                              {signalSaving ? 'Updating signal…' : 'Update signal timing'}
+                            </button>
+                          </form>
+                        ) : (
+                          <p className="profile-status">No traffic signals are registered for this intersection.</p>
+                        )}
+                      </>
+                    )}
+                  </section>
+                </>
               )}
 
               <div className="change-password">

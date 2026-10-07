@@ -146,13 +146,15 @@
   box-shadow: 0 20px 55px rgb(31 41 36 / 7%);
 }
 
-.intersection-panel {
+.intersection-panel,
+.signal-panel {
   margin-top: 32px;
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
 
-.intersection-panel select {
+.intersection-panel select,
+.signal-panel select {
   width: 100%;
   padding: 12px;
   border: 1px solid var(--line);
