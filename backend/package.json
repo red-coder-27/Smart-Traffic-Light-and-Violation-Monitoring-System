@@ -8,7 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/controllers/authController.test.ts src/controllers/profileController.test.ts src/controllers/intersectionController.test.ts src/routes/rbacRoutes.test.ts",
+    "test": "tsx --test src/controllers/authController.test.ts src/controllers/profileController.test.ts src/controllers/intersectionController.test.ts src/controllers/trafficSignalController.test.ts src/routes/rbacRoutes.test.ts",
     "postinstall": "prisma generate"
   },
   "engines": {
