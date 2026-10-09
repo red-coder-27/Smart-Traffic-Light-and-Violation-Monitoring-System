@@ -60,6 +60,14 @@ type SignalConfigForm = {
   redDuration: string
 }
 
+type ViolationForm = {
+  occurredAt: string
+  intersectionId: string
+  trafficSignalId: string
+  violationType: string
+  description: string
+}
+
 const emptyIntersection: IntersectionForm = {
   name: '',
   location: '',
@@ -76,6 +84,14 @@ const emptyProfile: ProfileForm = {
   state: '',
   postalCode: '',
   dateOfBirth: '',
+}
+
+const emptyViolation: ViolationForm = {
+  occurredAt: new Date().toISOString().slice(0, 16),
+  intersectionId: '',
+  trafficSignalId: '',
+  violationType: '',
+  description: '',
 }
 
 function readStoredToken() {
@@ -118,6 +134,15 @@ function App() {
     redDuration: '30',
   })
   const [selectedSignalId, setSelectedSignalId] = useState<string>('')
+  const [violationForm, setViolationForm] = useState<ViolationForm>(emptyViolation)
+  const [violationSaving, setViolationSaving] = useState(false)
+  const [violationLoading, setViolationLoading] = useState(false)
+  const [violations, setViolations] = useState<Array<{
+    id: string
+    occurredAt: string
+    violationType: string
+    intersection?: { name: string; location: string } | null
+  }>>([])
 
   useEffect(() => {
     if (!token) {
@@ -190,6 +215,35 @@ function App() {
     }
 
     void fetchIntersections()
+  }, [role, token])
+
+  useEffect(() => {
+    if (!token || role !== 'ADMIN') {
+      return
+    }
+
+    const fetchViolations = async () => {
+      setViolationLoading(true)
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/violations`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const result = await response.json() as {
+          message?: string
+          violations?: typeof violations
+        }
+        if (!response.ok) {
+          throw new Error(result.message ?? 'Unable to load violations.')
+        }
+        setViolations(result.violations ?? [])
+      } catch (error) {
+        setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to load violations.' })
+      } finally {
+        setViolationLoading(false)
+      }
+    }
+
+    void fetchViolations()
   }, [role, token])
 
   const syncSignalForm = useCallback((selected: Signal | null) => {
@@ -579,6 +633,40 @@ function App() {
     }
   }
 
+  async function handleViolationSave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token || role !== 'ADMIN') return
+
+    setViolationSaving(true)
+    setFeedback(null)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/violations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...violationForm,
+          occurredAt: new Date(violationForm.occurredAt).toISOString(),
+        }),
+      })
+      const result = await response.json() as { message?: string; violation?: typeof violations[number] }
+      if (!response.ok || !result.violation) {
+        throw new Error(result.message ?? 'Unable to record the violation.')
+      }
+
+      setViolations((current) => [result.violation!, ...current])
+      setViolationForm({ ...emptyViolation, occurredAt: new Date().toISOString().slice(0, 16) })
+      setFeedback({ kind: 'success', text: `Violation recorded with ID ${result.violation.id}.` })
+    } catch (error) {
+      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to record the violation.' })
+    } finally {
+      setViolationSaving(false)
+    }
+  }
+
   return (
     <main className="page-shell">
       <header className="site-header">
@@ -777,6 +865,99 @@ function App() {
                           <p className="profile-status">No traffic signals are registered for this intersection.</p>
                         )}
                       </>
+                    )}
+                  </section>
+
+                  <section className="signal-panel" aria-labelledby="violation-heading">
+                    <div className="profile-header">
+                      <h3 id="violation-heading">Record traffic violation</h3>
+                    </div>
+                    <form className="profile-form" onSubmit={handleViolationSave}>
+                      <div className="profile-grid">
+                        <div className="field-block">
+                          <label htmlFor="violation-occurred-at">Occurred at</label>
+                          <input
+                            id="violation-occurred-at"
+                            type="datetime-local"
+                            value={violationForm.occurredAt}
+                            onChange={(event) => setViolationForm((current) => ({ ...current, occurredAt: event.target.value }))}
+                            required
+                          />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="violation-type">Violation type</label>
+                          <input
+                            id="violation-type"
+                            value={violationForm.violationType}
+                            onChange={(event) => setViolationForm((current) => ({ ...current, violationType: event.target.value }))}
+                            maxLength={80}
+                            placeholder="RED_LIGHT"
+                            required
+                          />
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="violation-intersection">Intersection</label>
+                          <select
+                            id="violation-intersection"
+                            value={violationForm.intersectionId}
+                            onChange={(event) => setViolationForm((current) => ({
+                              ...current,
+                              intersectionId: event.target.value,
+                              trafficSignalId: '',
+                            }))}
+                            required
+                          >
+                            <option value="">Select an intersection</option>
+                            {intersections.map((intersection) => (
+                              <option key={intersection.id} value={intersection.id}>{intersection.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="field-block">
+                          <label htmlFor="violation-signal">Traffic signal</label>
+                          <select
+                            id="violation-signal"
+                            value={violationForm.trafficSignalId}
+                            onChange={(event) => setViolationForm((current) => ({ ...current, trafficSignalId: event.target.value }))}
+                            required
+                            disabled={!violationForm.intersectionId}
+                          >
+                            <option value="">Select a signal</option>
+                            {signals
+                              .filter((signal) => signal.intersectionId === violationForm.intersectionId)
+                              .map((signal) => (
+                                <option key={signal.id} value={signal.id}>{signal.status} signal</option>
+                              ))}
+                          </select>
+                        </div>
+                        <div className="field-block full-width">
+                          <label htmlFor="violation-description">Description</label>
+                          <textarea
+                            id="violation-description"
+                            value={violationForm.description}
+                            onChange={(event) => setViolationForm((current) => ({ ...current, description: event.target.value }))}
+                            maxLength={1000}
+                            rows={3}
+                          />
+                        </div>
+                      </div>
+                      <button type="submit" disabled={violationSaving}>
+                        {violationSaving ? 'Recording violation…' : 'Record violation'}
+                      </button>
+                    </form>
+                    {violationLoading ? (
+                      <p className="profile-status">Loading recorded violations…</p>
+                    ) : violations.length > 0 && (
+                      <ul className="intersection-list">
+                        {violations.map((violation) => (
+                          <li key={violation.id}>
+                            <span>
+                              <strong>{violation.violationType}</strong>
+                              <small>{violation.intersection?.name ?? 'Intersection'} · {new Date(violation.occurredAt).toLocaleString()}</small>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </section>
                 </>

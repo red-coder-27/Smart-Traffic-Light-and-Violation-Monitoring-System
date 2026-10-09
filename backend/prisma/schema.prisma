@@ -27,6 +27,31 @@ enum SignalStatus {
   GREEN
 }
 
+model Violation {
+  id               String        @id @default(uuid())
+  occurredAt       DateTime
+  intersectionId   String
+  trafficSignalId  String
+  violationType    String
+  description      String?
+  recordedByUserId String
+  violatingUserId  String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  intersection  Intersection  @relation(fields: [intersectionId], references: [id], onDelete: Restrict)
+  trafficSignal TrafficSignal @relation(fields: [trafficSignalId], references: [id], onDelete: Restrict)
+  recordedBy    User          @relation("RecordedViolations", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  violatingUser User?         @relation("ViolatingUserViolations", fields: [violatingUserId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt])
+  @@index([intersectionId])
+  @@index([trafficSignalId])
+  @@index([recordedByUserId])
+  @@index([violatingUserId])
+  @@map("violations")
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -40,6 +65,8 @@ model User {
 
   profile UserProfile?
   signalConfigChanges SignalConfigHistory[]
+  recordedViolations Violation[] @relation("RecordedViolations")
+  violatingViolations Violation[] @relation("ViolatingUserViolations")
 
   @@map("users")
 }
@@ -52,6 +79,7 @@ model Intersection {
   longitude Float?
   status    IntersectionStatus @default(ACTIVE)
   signals   TrafficSignal[]
+  violations Violation[]
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
@@ -70,6 +98,7 @@ model TrafficSignal {
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   configHistory    SignalConfigHistory[]
+  violations       Violation[]
 
   @@map("traffic_signals")
 }
