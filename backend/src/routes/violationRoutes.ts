@@ -1,5 +1,11 @@
 import { Router } from "express";
 import { createViolation, getViolation, listViolations } from "../controllers/violationController.js";
+import {
+    getEvidence,
+    getEvidenceContent,
+    listEvidence,
+    uploadEvidence,
+} from "../controllers/evidenceController.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 import { requireRole } from "../middleware/roleMiddleware.js";
 
@@ -9,4 +15,8 @@ violationRoutes.post("/", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE")
 violationRoutes.get("/", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), listViolations);
 violationRoutes.get("/:id", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), getViolation);
 
+violationRoutes.post("/:id/evidence", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE"), uploadEvidence);
+violationRoutes.get("/:id/evidence", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), listEvidence);
+violationRoutes.get("/:id/evidence/:evidenceId", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), getEvidence);
+violationRoutes.get("/:id/evidence/:evidenceId/content", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), getEvidenceContent);
 export default violationRoutes;

@@ -43,6 +43,7 @@ model Violation {
   trafficSignal TrafficSignal @relation(fields: [trafficSignalId], references: [id], onDelete: Restrict)
   recordedBy    User          @relation("RecordedViolations", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   violatingUser User?         @relation("ViolatingUserViolations", fields: [violatingUserId], references: [id], onDelete: SetNull)
+  evidence      Evidence[]
 
   @@index([occurredAt])
   @@index([intersectionId])
@@ -67,6 +68,7 @@ model User {
   signalConfigChanges SignalConfigHistory[]
   recordedViolations Violation[] @relation("RecordedViolations")
   violatingViolations Violation[] @relation("ViolatingUserViolations")
+  uploadedEvidence Evidence[]
 
   @@map("users")
 }
@@ -130,4 +132,23 @@ model UserProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_profiles")
+}
+
+model Evidence {
+  id           String    @id @default(uuid())
+  violationId  String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String    @unique
+  uploaderId   String
+  createdAt    DateTime  @default(now())
+
+  violation    Violation @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  uploader     User      @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  @@index([violationId])
+  @@index([uploaderId])
+  @@index([createdAt])
+  @@map("evidence")
 }
