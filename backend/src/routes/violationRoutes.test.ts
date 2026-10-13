@@ -36,6 +36,7 @@ test("the route stack rejects unauthenticated create, list, and detail requests"
     for (const [method, path] of [
         ["POST", "/api/violations"],
         ["GET", "/api/violations"],
+        ["GET", "/api/violations/report"],
         ["GET", "/api/violations/550e8400-e29b-41d4-a716-446655440000"],
         ["POST", "/api/violations/550e8400-e29b-41d4-a716-446655440000/evidence"],
         ["GET", "/api/violations/550e8400-e29b-41d4-a716-446655440000/evidence"],
@@ -67,6 +68,17 @@ test("the route stack rejects citizen creation and upload", async () => {
 
     assert.equal(evidenceRes.status, 403);
     assert.deepEqual(evidenceRes.body, {
+        success: false,
+        message: "Forbidden: insufficient permissions",
+    });
+
+    const reportRes = await request(
+        "/api/violations/report",
+        "GET",
+        tokenFor("citizen-id", "CITIZEN"),
+    );
+    assert.equal(reportRes.status, 403);
+    assert.deepEqual(reportRes.body, {
         success: false,
         message: "Forbidden: insufficient permissions",
     });

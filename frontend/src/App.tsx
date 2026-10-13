@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import TrafficReports from './TrafficReports'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000'
 
@@ -677,7 +678,10 @@ function App() {
         <span className="header-note">CITIZEN ACCESS</span>
       </header>
 
-      <section className="registration-layout" aria-labelledby="form-title">
+      <section
+        className={`registration-layout${role === 'ADMIN' || role === 'TRAFFIC_POLICE' ? ' registration-layout-wide' : ''}`}
+        aria-labelledby="form-title"
+      >
         <div className="intro-panel">
           <div className="eyebrow"><span /> COMMUNITY PORTAL</div>
           <h1>Move with<br />the city.</h1>
@@ -685,7 +689,7 @@ function App() {
           <div className="street-lines" aria-hidden="true"><span /><span /><span /><span /><span /></div>
         </div>
 
-        <div className="form-panel">
+        <div className={`form-panel${role === 'ADMIN' || role === 'TRAFFIC_POLICE' ? ' form-panel-wide' : ''}`}>
           <div className="form-heading">
             <span className="form-kicker">ACCOUNT CENTER</span>
             <h2 id="form-title">{token ? 'Your profile' : 'Create your account'}</h2>
@@ -696,6 +700,9 @@ function App() {
             <div className="profile-panel">
               <div className="profile-header">
                 <h3>My profile</h3>
+                {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                  <a className="secondary-button" href="#traffic-reports">Traffic reports</a>
+                )}
                 <button
                   type="button"
                   className="secondary-button"
@@ -961,6 +968,12 @@ function App() {
                     )}
                   </section>
                 </>
+              )}
+
+              {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                <div className="traffic-reports-panel" id="traffic-reports">
+                  <TrafficReports token={token} apiBaseUrl={API_BASE_URL} />
+                </div>
               )}
 
               <div className="change-password">

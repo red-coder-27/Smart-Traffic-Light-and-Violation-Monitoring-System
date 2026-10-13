@@ -75,6 +75,21 @@
   padding: 70px 0;
 }
 
+.registration-layout-wide {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 24px;
+}
+
+.registration-layout-wide .intro-panel {
+  min-height: 250px;
+  padding-top: 25px;
+}
+
+.registration-layout-wide .form-panel {
+  max-width: none;
+}
+
 .intro-panel {
   position: relative;
   min-height: 420px;
@@ -308,6 +323,238 @@ form button span {
   gap: 14px;
 }
 
+.profile-header a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.traffic-reports-panel {
+  margin-top: 12px;
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+
+.traffic-reports {
+  display: grid;
+  gap: 20px;
+}
+
+.report-heading,
+.report-section-heading,
+.report-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-heading h3 {
+  margin: 10px 0 5px;
+  font-family: var(--display);
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 500;
+}
+
+.report-heading p,
+.report-section-heading > span,
+.report-section-heading div > span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-filters {
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  align-items: end;
+  gap: 0 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: #fafbf8;
+}
+
+.report-filters input,
+.report-filters select {
+  width: 100%;
+  height: 43px;
+  margin-bottom: 14px;
+  padding: 0 10px;
+  border: 1px solid #d9ddd7;
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.report-filters button {
+  height: 43px;
+  margin: 0 0 14px;
+}
+
+.report-error {
+  padding: 12px;
+  border: 1px solid #e8c8c5;
+  background: #fff8f7;
+  color: #a4332d;
+  font-size: 13px;
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.report-metric,
+.report-chart,
+.report-records {
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.report-metric {
+  display: grid;
+  gap: 9px;
+}
+
+.report-metric span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.report-metric strong {
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 500;
+}
+
+.report-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.report-chart h4,
+.report-records h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.report-section-heading {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.report-section-heading > span {
+  text-align: right;
+}
+
+.trend-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.trend-chart line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.trend-chart polyline {
+  fill: none;
+  stroke: var(--green);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.report-breakdown {
+  display: grid;
+  gap: 15px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-breakdown li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+
+.report-breakdown strong {
+  flex: 0 0 auto;
+}
+
+.report-bar {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #edf0eb;
+}
+
+.report-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.report-records {
+  min-width: 0;
+}
+
+.report-table-wrap {
+  max-height: 430px;
+  overflow: auto;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.report-table th,
+.report-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.report-table th {
+  position: sticky;
+  top: 0;
+  background: #fafbf8;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.report-empty {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .change-password {
   display: grid;
   gap: 14px;
@@ -424,6 +671,25 @@ form button span {
   .form-panel {
     max-width: none;
     padding: 29px 24px 20px;
+  }
+
+  .registration-layout-wide .intro-panel {
+    min-height: 194px;
+    padding-top: 5px;
+  }
+
+  .report-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .report-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .report-heading,
+  .report-section-heading,
+  .report-error {
+    align-items: flex-start;
   }
 }
 
