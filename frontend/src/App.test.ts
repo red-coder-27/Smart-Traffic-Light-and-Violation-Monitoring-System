@@ -144,3 +144,32 @@ test('CSS positions street-lines decoration away from hero heading and sets poin
   assert.ok(css.includes('right: 0;'), 'street-lines must be positioned to the right')
   assert.ok(css.includes('z-index: 1;'), 'intro-panel headings must have higher z-index')
 })
+
+test('navigating to #challans without authentication renders auth error and login form', () => {
+  setupMockWindow('#challans', '')
+  const html = renderToString(React.createElement(App))
+
+  assert.ok(html.includes('Authentication required: Please log in to view and settle your citations.'))
+  assert.ok(html.includes('Challans &amp; fine payment sign in') || html.includes('Challans & fine payment sign in'))
+  assert.ok(html.includes('id="login-email"'))
+  // Must NOT display profile form
+  assert.ok(!html.includes('id="profile-name"'))
+})
+
+test('authenticated citizen navigating to #challans renders challan view or loading state', () => {
+  setupMockWindow('#challans', 'mock-citizen-token')
+  const html = renderToString(React.createElement(App))
+
+  // While profile is loading or once loaded, does NOT render the profile form
+  assert.ok(!html.includes('id="profile-name"'))
+  assert.ok(html.includes('Loading challans…') || html.includes('Digital Challans'))
+})
+
+test('authenticated user on profile view sees "Challans & fines" navigation button', () => {
+  setupMockWindow('', 'mock-citizen-token')
+  const html = renderToString(React.createElement(App))
+
+  assert.ok(html.includes('id="nav-challans-btn"'))
+  assert.ok(html.includes('Challans &amp; fines') || html.includes('Challans & fines'))
+})
+

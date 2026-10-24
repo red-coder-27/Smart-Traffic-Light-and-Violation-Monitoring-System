@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import TrafficReports from './TrafficReports'
+import ChallanPayment from './ChallanPayment'
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || 'http://localhost:5000'
 
@@ -165,6 +166,7 @@ function App() {
   }, [])
 
   const isTrafficReports = route === 'traffic-reports'
+  const isChallans = route === 'challans'
   const isAuthorizedForReports = role === 'ADMIN' || role === 'TRAFFIC_POLICE'
   const [intersectionLoading, setIntersectionLoading] = useState(false)
   const [intersectionSaving, setIntersectionSaving] = useState(false)
@@ -722,17 +724,17 @@ function App() {
       </header>
 
       <section
-        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports ? ' registration-layout-wide' : ''}`}
-        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : 'form-title'}
+        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans ? ' registration-layout-wide' : ''}`}
+        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : isChallans ? 'challans-title' : 'form-title'}
       >
         <div className="intro-panel">
           <div className="eyebrow"><span /> COMMUNITY PORTAL</div>
           <h1>Move with<br />the city.</h1>
-          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : 'Register, sign in, and keep your profile current.'}</p>
+          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : isChallans ? 'Review citations and settle verified traffic fines securely.' : 'Register, sign in, and keep your profile current.'}</p>
           <div className="street-lines" aria-hidden="true"><span /><span /><span /><span /><span /></div>
         </div>
 
-        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports ? ' form-panel-wide' : ''}`}>
+        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans ? ' form-panel-wide' : ''}`}>
           {isTrafficReports ? (
             !token ? (
               <>
@@ -826,6 +828,59 @@ function App() {
                 <TrafficReports token={token} apiBaseUrl={API_BASE_URL} />
               </div>
             )
+          ) : isChallans ? (
+            !token ? (
+              <>
+                <div className="form-heading">
+                  <span className="form-kicker">CITIZEN COMPLIANCE</span>
+                  <h2 id="form-title">Challans & fine payment sign in</h2>
+                  <p>Please log in to view and settle your traffic citations.</p>
+                </div>
+
+                <div className="report-error" role="alert" style={{ marginBottom: 16 }}>
+                  <span>Authentication required: Please log in to view and settle your citations.</span>
+                </div>
+
+                <div className="auth-stack">
+                  <form onSubmit={handleLogin}>
+                    <label htmlFor="login-email">Email address</label>
+                    <input id="login-email" type="email" value={loginForm.email} onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))} autoComplete="email" placeholder="you@example.com" required />
+
+                    <label htmlFor="login-password">Password</label>
+                    <input id="login-password" type="password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" placeholder="Enter your password" required />
+
+                    <button type="submit" disabled={loginLoading}>
+                      {loginLoading ? 'Signing in…' : 'Log in'}
+                      {!loginLoading && <span aria-hidden="true">→</span>}
+                    </button>
+                  </form>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <a
+                    className="secondary-button"
+                    href="#profile"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      navigateTo('')
+                    }}
+                  >
+                    ← Back to registration
+                  </a>
+                </div>
+              </>
+            ) : profileLoading ? (
+              <div className="traffic-reports-panel">
+                <p className="profile-status" role="status">Loading challans…</p>
+              </div>
+            ) : (
+              <ChallanPayment
+                token={token}
+                role={role}
+                apiBaseUrl={API_BASE_URL}
+                onBackToProfile={() => navigateTo('')}
+                onLogout={handleLogout}
+              />
+            )
           ) : (
             <>
               <div className="form-heading">
@@ -838,25 +893,38 @@ function App() {
                 <div className="profile-panel">
                   <div className="profile-header">
                     <h3>My profile</h3>
-                    {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <a
                         className="secondary-button"
-                        href="#traffic-reports"
+                        href="#challans"
+                        id="nav-challans-btn"
                         onClick={(event) => {
                           event.preventDefault()
-                          navigateTo('traffic-reports')
+                          navigateTo('challans')
                         }}
                       >
-                        Traffic reports
+                        Challans & fines
                       </a>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={handleLogout}
-                    >
-                      Log out
-                    </button>
+                      {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                        <a
+                          className="secondary-button"
+                          href="#traffic-reports"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            navigateTo('traffic-reports')
+                          }}
+                        >
+                          Traffic reports
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleLogout}
+                      >
+                        Log out
+                      </button>
+                    </div>
                   </div>
 
               {profileLoading ? (
