@@ -104,9 +104,19 @@ function TrafficReports({ token, apiBaseUrl }: TrafficReportsProps) {
         headers: { Authorization: `Bearer ${token}` },
         signal,
       })
-      const result = await response.json() as Report & { success?: boolean; message?: string }
-      if (!response.ok || !result.success) {
-        throw new Error(result.message ?? 'Unable to load traffic reports.')
+      let result: (Report & { success?: boolean; message?: string }) | null = null
+      try {
+        result = await response.json() as Report & { success?: boolean; message?: string }
+      } catch {
+        // Response was not JSON
+      }
+      if (!response.ok || !result || result.success === false) {
+        const defaultMsg = response.status === 403
+          ? 'Access forbidden. Administrator or Traffic Police role required.'
+          : response.status === 401
+            ? 'Authentication required. Please log in again.'
+            : 'Unable to load traffic reports.'
+        throw new Error(result?.message || defaultMsg)
       }
       setReport(result)
     } catch (loadError) {
