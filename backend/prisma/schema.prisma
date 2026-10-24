@@ -27,6 +27,12 @@ enum SignalStatus {
   GREEN
 }
 
+enum ChallanStatus {
+  UNPAID
+  PAID
+  CANCELLED
+}
+
 model Violation {
   id               String        @id @default(uuid())
   occurredAt       DateTime
@@ -44,6 +50,7 @@ model Violation {
   recordedBy    User          @relation("RecordedViolations", fields: [recordedByUserId], references: [id], onDelete: Restrict)
   violatingUser User?         @relation("ViolatingUserViolations", fields: [violatingUserId], references: [id], onDelete: SetNull)
   evidence      Evidence[]
+  challan       Challan?
 
   @@index([occurredAt])
   @@index([intersectionId])
@@ -69,6 +76,7 @@ model User {
   recordedViolations Violation[] @relation("RecordedViolations")
   violatingViolations Violation[] @relation("ViolatingUserViolations")
   uploadedEvidence Evidence[]
+  challans Challan[] @relation("CitizenChallans")
 
   @@map("users")
 }
@@ -151,4 +159,44 @@ model Evidence {
   @@index([uploaderId])
   @@index([createdAt])
   @@map("evidence")
+}
+
+model Challan {
+  id               String        @id @default(uuid())
+  challanNumber    String        @unique
+  violationId      String        @unique
+  citizenId        String
+  amount           Float
+  status           ChallanStatus @default(UNPAID)
+  paidAt           DateTime?
+  paymentReference String?
+  paymentMethod    String?
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  violation        Violation     @relation(fields: [violationId], references: [id], onDelete: Cascade)
+  citizen          User          @relation("CitizenChallans", fields: [citizenId], references: [id], onDelete: Restrict)
+  transactions     PaymentTransaction[]
+
+  @@index([citizenId])
+  @@index([status])
+  @@map("challans")
+}
+
+model PaymentTransaction {
+  id             String   @id @default(uuid())
+  challanId      String
+  amount         Float
+  status         String
+  reference      String   @unique
+  paymentMethod  String
+  failureReason  String?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  challan        Challan  @relation(fields: [challanId], references: [id], onDelete: Cascade)
+
+  @@index([challanId])
+  @@map("payment_transactions")
 }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "tsx --import ./src/test-setup.js --test src/App.test.ts",
+    "test": "tsx --import ./src/test-setup.js --test src/App.test.ts src/ChallanPayment.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },

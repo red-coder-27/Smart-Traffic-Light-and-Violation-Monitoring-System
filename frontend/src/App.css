@@ -719,3 +719,455 @@ form button span {
     padding-inline: 18px;
   }
 }
+
+/* ============================================================
+   Challans & Fine Payment Simulation Styles
+   ============================================================ */
+.challans-container {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+}
+
+.challans-nav-header {
+  margin-bottom: 8px;
+}
+
+.simulation-notice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 4px;
+  background: #fbf6ec;
+  border: 1px solid #fae2b8;
+  font-size: 12px;
+  color: #7d4e00;
+  line-height: 1.45;
+}
+
+.simulation-notice p {
+  margin: 0;
+}
+
+.simulation-notice-badge {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: #f3b33d;
+  color: #202a25;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+}
+
+.challan-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+
+.challan-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.challan-tab {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.challan-tab:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.challan-tab.active {
+  color: var(--green);
+  border-color: var(--line);
+  border-bottom-color: var(--paper);
+  background: var(--paper);
+  position: relative;
+  top: 1px;
+}
+
+.challan-cards-list {
+  display: grid;
+  gap: 16px;
+}
+
+.challan-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  display: grid;
+  gap: 16px;
+}
+
+.challan-card:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.04);
+}
+
+.challan-card-unpaid {
+  border-left: 4px solid #f3b33d;
+}
+
+.challan-card-paid {
+  border-left: 4px solid var(--green);
+  background: #fbfcfb;
+}
+
+.challan-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.challan-number-tag {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  display: inline-block;
+  margin-right: 12px;
+}
+
+.challan-date-tag {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.badge-paid {
+  background: #dff0e4;
+  color: #1b5e39;
+  border: 1px solid #b7dfc0;
+}
+
+.badge-unpaid {
+  background: #fdf2d9;
+  color: #8c5b04;
+  border: 1px solid #f9de9e;
+}
+
+.badge-cancelled {
+  background: #f1f3f1;
+  color: #636b66;
+  border: 1px solid #e2e5e3;
+}
+
+.challan-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+}
+
+.challan-violation-info {
+  display: grid;
+  gap: 6px;
+}
+
+.violation-headline {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.violation-detail-row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #556059;
+}
+
+.challan-amount-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 12px 18px;
+  border-radius: 4px;
+  background: #fafbf9;
+  border: 1px solid var(--line);
+  min-width: 140px;
+}
+
+.amount-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+}
+
+.amount-value {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.amount-statutory {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.challan-receipt-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 12px 16px;
+  border-radius: 4px;
+  background: #edf7ef;
+  border: 1px solid #c7e6ce;
+  font-size: 12px;
+}
+
+.receipt-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receipt-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #276743;
+}
+
+.receipt-code {
+  font-family: monospace;
+  font-size: 12px;
+  color: #1b5e39;
+}
+
+.challan-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 10px;
+}
+
+.pay-action-btn {
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 3px;
+  border: none;
+  background: var(--green);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pay-action-btn:hover {
+  background: #25593e;
+}
+
+.paid-status-note {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+/* Modal / Drawer Dialog */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 24, 21, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-dialog {
+  background: var(--paper);
+  border-radius: 6px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbf9;
+}
+
+.modal-close-btn {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.modal-close-btn:hover {
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.modal-body {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.checkout-summary-card {
+  padding: 16px;
+  border-radius: 4px;
+  background: #f7f9f6;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+.checkout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.checkout-label {
+  color: var(--muted);
+}
+
+.checkout-val {
+  font-family: monospace;
+}
+
+.checkout-amount {
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--green);
+}
+
+.checkout-disclaimer {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+
+.payment-feedback-banner {
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.feedback-success {
+  background: #dff0e4;
+  color: #1b5e39;
+  border: 1px solid #b7dfc0;
+}
+
+.feedback-error {
+  background: #fde8e8;
+  color: #9b1c1c;
+  border: 1px solid #f8b4b4;
+}
+
+.payment-form {
+  display: grid;
+  gap: 16px;
+}
+
+.payment-form select {
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid #d9ddd7;
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.confirm-pay-btn {
+  height: 44px;
+  border: none;
+  border-radius: 3px;
+  background: var(--green);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.confirm-pay-btn:hover:not(:disabled) {
+  background: #25593e;
+}
+
+.confirm-pay-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
