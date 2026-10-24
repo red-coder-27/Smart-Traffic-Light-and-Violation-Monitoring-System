@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import TrafficReports from './TrafficReports'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000'
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || 'http://localhost:5000'
 
 type Feedback = { kind: 'success' | 'error'; text: string }
 
@@ -103,6 +103,14 @@ function readStoredToken() {
   return window.localStorage.getItem('trafficAuthToken') ?? ''
 }
 
+function readCurrentHash(): string {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return window.location.hash.replace(/^#\/?/, '')
+}
+
 function App() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [loginLoading, setLoginLoading] = useState(false)
@@ -112,6 +120,7 @@ function App() {
   const [password, setPassword] = useState('')
   const [token, setToken] = useState(readStoredToken)
   const [role, setRole] = useState('')
+  const [route, setRoute] = useState(readCurrentHash)
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [profile, setProfile] = useState<ProfileForm>(emptyProfile)
   const [changePasswordForm, setChangePasswordForm] = useState<ChangePasswordForm>({
@@ -123,6 +132,40 @@ function App() {
   const [intersections, setIntersections] = useState<Intersection[]>([])
   const [intersectionForm, setIntersectionForm] = useState<IntersectionForm>(emptyIntersection)
   const [editingIntersectionId, setEditingIntersectionId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setRoute(readCurrentHash())
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('popstate', handleHashChange)
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange)
+      window.removeEventListener('popstate', handleHashChange)
+    }
+  }, [])
+
+  const navigateTo = useCallback((newRoute: string) => {
+    const cleanRoute = newRoute.replace(/^#\/?/, '')
+    const targetHash = cleanRoute ? `#${cleanRoute}` : ''
+    if (typeof window !== 'undefined' && window.location.hash !== targetHash) {
+      window.location.hash = targetHash
+    }
+    setRoute(cleanRoute)
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('trafficAuthToken')
+    }
+    setToken('')
+    setRole('')
+    setProfile(emptyProfile)
+    setFeedback({ kind: 'success', text: 'You have been signed out.' })
+  }, [])
+
+  const isTrafficReports = route === 'traffic-reports'
+  const isAuthorizedForReports = role === 'ADMIN' || role === 'TRAFFIC_POLICE'
   const [intersectionLoading, setIntersectionLoading] = useState(false)
   const [intersectionSaving, setIntersectionSaving] = useState(false)
   const [signals, setSignals] = useState<Signal[]>([])
@@ -679,44 +722,142 @@ function App() {
       </header>
 
       <section
-        className={`registration-layout${role === 'ADMIN' || role === 'TRAFFIC_POLICE' ? ' registration-layout-wide' : ''}`}
-        aria-labelledby="form-title"
+        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports ? ' registration-layout-wide' : ''}`}
+        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : 'form-title'}
       >
         <div className="intro-panel">
           <div className="eyebrow"><span /> COMMUNITY PORTAL</div>
           <h1>Move with<br />the city.</h1>
-          <p>Register, sign in, and keep your profile current.</p>
+          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : 'Register, sign in, and keep your profile current.'}</p>
           <div className="street-lines" aria-hidden="true"><span /><span /><span /><span /><span /></div>
         </div>
 
-        <div className={`form-panel${role === 'ADMIN' || role === 'TRAFFIC_POLICE' ? ' form-panel-wide' : ''}`}>
-          <div className="form-heading">
-            <span className="form-kicker">ACCOUNT CENTER</span>
-            <h2 id="form-title">{token ? 'Your profile' : 'Create your account'}</h2>
-            <p>{token ? 'Update your personal details below.' : 'Enter your details below to register or log in.'}</p>
-          </div>
+        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports ? ' form-panel-wide' : ''}`}>
+          {isTrafficReports ? (
+            !token ? (
+              <>
+                <div className="form-heading">
+                  <span className="form-kicker">TRAFFIC OPERATIONS</span>
+                  <h2 id="form-title">Traffic reports sign in</h2>
+                  <p>Please log in with an administrator or traffic police account to view traffic reports.</p>
+                </div>
 
-          {token ? (
-            <div className="profile-panel">
-              <div className="profile-header">
-                <h3>My profile</h3>
-                {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
-                  <a className="secondary-button" href="#traffic-reports">Traffic reports</a>
-                )}
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    window.localStorage.removeItem('trafficAuthToken')
-                    setToken('')
-                    setRole('')
-                    setProfile(emptyProfile)
-                    setFeedback({ kind: 'success', text: 'You have been signed out.' })
-                  }}
-                >
-                  Log out
-                </button>
+                <div className="report-error" role="alert" style={{ marginBottom: 16 }}>
+                  <span>Authentication required: Please log in with an administrator or traffic police account to view traffic reports.</span>
+                </div>
+
+                <div className="auth-stack">
+                  <form onSubmit={handleLogin}>
+                    <label htmlFor="login-email">Email address</label>
+                    <input id="login-email" type="email" value={loginForm.email} onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))} autoComplete="email" placeholder="you@example.com" required />
+
+                    <label htmlFor="login-password">Password</label>
+                    <input id="login-password" type="password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" placeholder="Enter your password" required />
+
+                    <button type="submit" disabled={loginLoading}>
+                      {loginLoading ? 'Signing in…' : 'Log in'}
+                      {!loginLoading && <span aria-hidden="true">→</span>}
+                    </button>
+                  </form>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <a
+                    className="secondary-button"
+                    href="#profile"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      navigateTo('')
+                    }}
+                  >
+                    ← Back to registration
+                  </a>
+                </div>
+              </>
+            ) : profileLoading ? (
+              <div className="traffic-reports-panel">
+                <p className="profile-status" role="status">Loading traffic reports…</p>
               </div>
+            ) : !isAuthorizedForReports ? (
+              <div className="traffic-reports-panel">
+                <div className="report-error" role="alert">
+                  <span>Access restricted: Your account role ({role || 'CITIZEN'}) does not have permission to view traffic reports. Administrator or Traffic Police role is required.</span>
+                </div>
+                <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+                  <a
+                    className="secondary-button"
+                    href="#profile"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      navigateTo('')
+                    }}
+                  >
+                    Return to profile
+                  </a>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="traffic-reports-panel">
+                <div className="profile-header" style={{ marginBottom: 16 }}>
+                  <a
+                    className="secondary-button"
+                    href="#profile"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      navigateTo('')
+                    }}
+                  >
+                    ← Back to profile
+                  </a>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </button>
+                </div>
+                <TrafficReports token={token} apiBaseUrl={API_BASE_URL} />
+              </div>
+            )
+          ) : (
+            <>
+              <div className="form-heading">
+                <span className="form-kicker">ACCOUNT CENTER</span>
+                <h2 id="form-title">{token ? 'Your profile' : 'Create your account'}</h2>
+                <p>{token ? 'Update your personal details below.' : 'Enter your details below to register or log in.'}</p>
+              </div>
+
+              {token ? (
+                <div className="profile-panel">
+                  <div className="profile-header">
+                    <h3>My profile</h3>
+                    {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                      <a
+                        className="secondary-button"
+                        href="#traffic-reports"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          navigateTo('traffic-reports')
+                        }}
+                      >
+                        Traffic reports
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={handleLogout}
+                    >
+                      Log out
+                    </button>
+                  </div>
 
               {profileLoading ? (
                 <p className="profile-status">Loading profile…</p>
@@ -970,12 +1111,6 @@ function App() {
                 </>
               )}
 
-              {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
-                <div className="traffic-reports-panel" id="traffic-reports">
-                  <TrafficReports token={token} apiBaseUrl={API_BASE_URL} />
-                </div>
-              )}
-
               <div className="change-password">
                 <div className="profile-header">
                   <h3>Change password</h3>
@@ -1057,6 +1192,8 @@ function App() {
               </form>
             </div>
           )}
+        </>
+      )}
 
           <p className="form-feedback" aria-live="polite" data-kind={feedback?.kind ?? 'none'}>
             {feedback?.text ?? ''}

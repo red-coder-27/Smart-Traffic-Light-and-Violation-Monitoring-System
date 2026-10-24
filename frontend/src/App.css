@@ -86,6 +86,12 @@
   padding-top: 25px;
 }
 
+.registration-layout-wide .street-lines {
+  right: 0;
+  left: auto;
+  bottom: 0;
+}
+
 .registration-layout-wide .form-panel {
   max-width: none;
 }
@@ -95,6 +101,13 @@
   min-height: 420px;
   padding-top: 55px;
   overflow: hidden;
+}
+
+.intro-panel h1,
+.intro-panel p,
+.intro-panel .eyebrow {
+  position: relative;
+  z-index: 1;
 }
 
 .eyebrow,
@@ -134,10 +147,13 @@
 .street-lines {
   position: absolute;
   bottom: 0;
-  left: 0;
+  right: 0;
+  left: auto;
   display: flex;
   gap: 10px;
   transform: skewX(-24deg);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .street-lines span {
@@ -330,9 +346,9 @@ form button span {
 }
 
 .traffic-reports-panel {
-  margin-top: 12px;
-  padding-top: 25px;
-  border-top: 1px solid var(--line);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .traffic-reports {
