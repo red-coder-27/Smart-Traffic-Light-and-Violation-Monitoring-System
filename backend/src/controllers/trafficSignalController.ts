@@ -4,12 +4,15 @@ import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SIGNAL_STATUSES = ["RED", "YELLOW", "GREEN"] as const;
+const SIGNAL_DIRECTIONS = ["NORTH", "EAST", "SOUTH", "WEST"] as const;
 const REQUIRED_TIMINGS = ["greenDuration", "yellowDuration", "redDuration"] as const;
 
 type SignalStatus = (typeof SIGNAL_STATUSES)[number];
+type SignalDirection = (typeof SIGNAL_DIRECTIONS)[number];
 
 type SignalConfigInput = {
     status: SignalStatus;
+    direction?: SignalDirection | null;
     greenDuration: number;
     yellowDuration: number;
     redDuration: number;
@@ -18,6 +21,7 @@ type SignalConfigInput = {
 type SignalPayload = {
     id: string;
     intersectionId: string;
+    direction: SignalDirection | null;
     status: SignalStatus;
     greenDuration: number;
     yellowDuration: number;
@@ -31,6 +35,13 @@ type SignalPayload = {
         status: "ACTIVE" | "INACTIVE";
     } | null;
 };
+
+class SignalConfigConflict extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "SignalConfigConflict";
+    }
+}
 
 export type TrafficSignalServices = {
     listSignals(): Promise<SignalPayload[]>;
@@ -61,6 +72,7 @@ function isDatabaseError(error: unknown, code: string): boolean {
 function toSignalPayload(signal: {
     id: string;
     intersectionId: string;
+    direction: SignalDirection | null;
     status: SignalStatus;
     greenDuration: number;
     yellowDuration: number;
@@ -77,6 +89,7 @@ function toSignalPayload(signal: {
     return {
         id: signal.id,
         intersectionId: signal.intersectionId,
+        direction: signal.direction,
         status: signal.status,
         greenDuration: signal.greenDuration,
         yellowDuration: signal.yellowDuration,
@@ -98,8 +111,19 @@ function validateSignalConfig(body: Record<string, unknown>): SignalConfigInput 
         }
     }
 
+    if (
+        body.direction !== undefined
+        && body.direction !== null
+        && (typeof body.direction !== "string" || !SIGNAL_DIRECTIONS.includes(body.direction as SignalDirection))
+    ) {
+        return null;
+    }
+
     return {
         status: body.status as SignalStatus,
+        ...(body.direction === undefined
+            ? {}
+            : { direction: body.direction as SignalDirection | null }),
         greenDuration: body.greenDuration as number,
         yellowDuration: body.yellowDuration as number,
         redDuration: body.redDuration as number,
@@ -169,6 +193,17 @@ export function createTrafficSignalHandlers(services: TrafficSignalServices) {
                     res.status(404).json({ success: false, message: "Traffic signal not found" });
                     return;
                 }
+                if (error instanceof SignalConfigConflict) {
+                    res.status(409).json({ success: false, message: error.message });
+                    return;
+                }
+                if (isDatabaseError(error, "P2002")) {
+                    res.status(409).json({
+                        success: false,
+                        message: "Another signal at this intersection is already assigned to that approach.",
+                    });
+                    return;
+                }
                 console.error("Updating traffic signal config failed:", error);
                 res.status(500).json({ success: false, message: "Internal server error" });
             }
@@ -227,29 +262,59 @@ const handlers = createTrafficSignalHandlers({
         return signal ? toSignalPayload(signal) : null;
     },
     updateSignalConfig: async (id, data, changedByUserId) => {
-        const currentSignal = await prisma.trafficSignal.findUnique({ where: { id } });
-        if (!currentSignal) {
-            throw Object.assign(new Error("Traffic signal not found"), { code: "P2025" });
-        }
-
-        const previousConfig = JSON.stringify({
-            status: currentSignal.status,
-            greenDuration: currentSignal.greenDuration,
-            yellowDuration: currentSignal.yellowDuration,
-            redDuration: currentSignal.redDuration,
+        const existing = await prisma.trafficSignal.findUnique({
+            where: { id },
+            select: { intersectionId: true },
         });
-        const nextConfig = JSON.stringify({
-            status: data.status,
-            greenDuration: data.greenDuration,
-            yellowDuration: data.yellowDuration,
-            redDuration: data.redDuration,
-        });
+        if (!existing) throw Object.assign(new Error("Traffic signal not found"), { code: "P2025" });
 
         const updatedSignal = await prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.intersectionId}))`;
+            const currentSignal = await tx.trafficSignal.findUnique({ where: { id } });
+            if (!currentSignal) {
+                throw Object.assign(new Error("Traffic signal not found"), { code: "P2025" });
+            }
+            const activePriority = await tx.emergencyPriorityRequest.findFirst({
+                where: { intersectionId: currentSignal.intersectionId, status: "ACTIVE" },
+                select: { id: true },
+            });
+            if (activePriority) {
+                throw new SignalConfigConflict("Signal configuration is locked while emergency priority is active.");
+            }
+            if (data.status === "GREEN") {
+                const conflictingGreen = await tx.trafficSignal.findFirst({
+                    where: {
+                        intersectionId: currentSignal.intersectionId,
+                        status: "GREEN",
+                        id: { not: id },
+                    },
+                    select: { id: true },
+                });
+                if (conflictingGreen) {
+                    throw new SignalConfigConflict("Another approach is already green at this intersection.");
+                }
+            }
+
+            const previousConfig = JSON.stringify({
+                status: currentSignal.status,
+                direction: currentSignal.direction,
+                greenDuration: currentSignal.greenDuration,
+                yellowDuration: currentSignal.yellowDuration,
+                redDuration: currentSignal.redDuration,
+            });
+            const nextConfig = JSON.stringify({
+                status: data.status,
+                direction: data.direction === undefined ? currentSignal.direction : data.direction,
+                greenDuration: data.greenDuration,
+                yellowDuration: data.yellowDuration,
+                redDuration: data.redDuration,
+            });
+
             const saved = await tx.trafficSignal.update({
                 where: { id },
                 data: {
                     status: data.status,
+                    ...(data.direction === undefined ? {} : { direction: data.direction }),
                     greenDuration: data.greenDuration,
                     yellowDuration: data.yellowDuration,
                     redDuration: data.redDuration,

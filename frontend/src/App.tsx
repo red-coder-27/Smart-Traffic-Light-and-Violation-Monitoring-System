@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import TrafficReports from './TrafficReports'
 import ChallanPayment from './ChallanPayment'
+import EmergencyPriority from './EmergencyPriority'
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || 'http://localhost:5000'
 
@@ -43,6 +44,7 @@ type IntersectionForm = {
 type Signal = {
   id: string
   intersectionId: string
+  direction: 'NORTH' | 'EAST' | 'SOUTH' | 'WEST' | null
   status: 'RED' | 'YELLOW' | 'GREEN'
   greenDuration: number
   yellowDuration: number
@@ -57,6 +59,7 @@ type Signal = {
 
 type SignalConfigForm = {
   status: 'RED' | 'YELLOW' | 'GREEN'
+  direction: '' | 'NORTH' | 'EAST' | 'SOUTH' | 'WEST'
   greenDuration: string
   yellowDuration: string
   redDuration: string
@@ -167,6 +170,7 @@ function App() {
 
   const isTrafficReports = route === 'traffic-reports'
   const isChallans = route === 'challans'
+  const isEmergencyPriority = route === 'emergency-priority'
   const isAuthorizedForReports = role === 'ADMIN' || role === 'TRAFFIC_POLICE'
   const [intersectionLoading, setIntersectionLoading] = useState(false)
   const [intersectionSaving, setIntersectionSaving] = useState(false)
@@ -175,6 +179,7 @@ function App() {
   const [signalSaving, setSignalSaving] = useState(false)
   const [signalForm, setSignalForm] = useState<SignalConfigForm>({
     status: 'RED',
+    direction: '',
     greenDuration: '30',
     yellowDuration: '5',
     redDuration: '30',
@@ -296,6 +301,7 @@ function App() {
     if (!selected) {
       setSignalForm({
         status: 'RED',
+        direction: '',
         greenDuration: '30',
         yellowDuration: '5',
         redDuration: '30',
@@ -305,6 +311,7 @@ function App() {
 
     setSignalForm({
       status: selected.status,
+      direction: selected.direction ?? '',
       greenDuration: String(selected.greenDuration),
       yellowDuration: String(selected.yellowDuration),
       redDuration: String(selected.redDuration),
@@ -655,6 +662,7 @@ function App() {
         },
         body: JSON.stringify({
           status: signalForm.status,
+          direction: signalForm.direction || null,
           greenDuration: Number(signalForm.greenDuration),
           yellowDuration: Number(signalForm.yellowDuration),
           redDuration: Number(signalForm.redDuration),
@@ -724,17 +732,17 @@ function App() {
       </header>
 
       <section
-        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans ? ' registration-layout-wide' : ''}`}
-        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : isChallans ? 'challans-title' : 'form-title'}
+        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority ? ' registration-layout-wide' : ''}`}
+        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : isChallans ? 'challans-title' : isEmergencyPriority ? 'emergency-priority-title' : 'form-title'}
       >
         <div className="intro-panel">
           <div className="eyebrow"><span /> COMMUNITY PORTAL</div>
           <h1>Move with<br />the city.</h1>
-          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : isChallans ? 'Review citations and settle verified traffic fines securely.' : 'Register, sign in, and keep your profile current.'}</p>
+          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : isChallans ? 'Review citations and settle verified traffic fines securely.' : isEmergencyPriority ? 'Coordinate a simulated emergency approach with safe signal clearance.' : 'Register, sign in, and keep your profile current.'}</p>
           <div className="street-lines" aria-hidden="true"><span /><span /><span /><span /><span /></div>
         </div>
 
-        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans ? ' form-panel-wide' : ''}`}>
+        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority ? ' form-panel-wide' : ''}`}>
           {isTrafficReports ? (
             !token ? (
               <>
@@ -881,6 +889,48 @@ function App() {
                 onLogout={handleLogout}
               />
             )
+          ) : isEmergencyPriority ? (
+              !token ? (
+                <>
+                  <div className="form-heading">
+                    <span className="form-kicker">TRAFFIC OPERATIONS</span>
+                    <h2 id="form-title">Emergency priority sign in</h2>
+                    <p>Administrator or Traffic Police access is required to request and control emergency priority.</p>
+                  </div>
+                  <div className="report-error" role="alert" style={{ marginBottom: 16 }}>
+                    Authentication required: Sign in with an authorized traffic operations account.
+                  </div>
+                  <div className="auth-stack">
+                    <form onSubmit={handleLogin}>
+                      <label htmlFor="login-email">Email address</label>
+                      <input id="login-email" type="email" value={loginForm.email} onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))} autoComplete="email" placeholder="you@example.com" required />
+                      <label htmlFor="login-password">Password</label>
+                      <input id="login-password" type="password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" placeholder="Enter your password" required />
+                      <button type="submit" disabled={loginLoading}>{loginLoading ? 'Signing in…' : 'Log in'}</button>
+                    </form>
+                  </div>
+                </>
+              ) : profileLoading ? (
+                <p className="profile-status" role="status">Loading operator access…</p>
+              ) : role !== 'ADMIN' && role !== 'TRAFFIC_POLICE' ? (
+                <div className="report-error" role="alert">
+                  Access restricted: Administrator or Traffic Police role is required.
+                </div>
+              ) : (
+                <div className="traffic-reports-panel">
+                  <div className="profile-header" style={{ marginBottom: 16 }}>
+                    <a
+                      className="secondary-button"
+                      href="#profile"
+                      onClick={(event) => { event.preventDefault(); navigateTo('') }}
+                    >
+                      ← Back to profile
+                    </a>
+                    <button type="button" className="secondary-button" onClick={handleLogout}>Log out</button>
+                  </div>
+                  <EmergencyPriority token={token} apiBaseUrl={API_BASE_URL} />
+                </div>
+              )
           ) : (
             <>
               <div className="form-heading">
@@ -915,6 +965,18 @@ function App() {
                           }}
                         >
                           Traffic reports
+                        </a>
+                      )}
+                      {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
+                        <a
+                          className="secondary-button"
+                          href="#emergency-priority"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            navigateTo('emergency-priority')
+                          }}
+                        >
+                          Emergency priority
                         </a>
                       )}
                       <button
@@ -1039,7 +1101,7 @@ function App() {
                           <select id="signal-select" value={selectedSignalId} onChange={(event) => setSelectedSignalId(event.target.value)}>
                             {signals.length ? signals.map((signal) => (
                               <option key={signal.id} value={signal.id}>
-                                {signal.intersection?.name ?? 'Signal'} · {signal.status}
+                                {signal.intersection?.name ?? 'Signal'} · {signal.direction ?? 'Approach not assigned'} · {signal.status}
                               </option>
                             )) : <option value="">No signals available</option>}
                           </select>
@@ -1048,6 +1110,16 @@ function App() {
                         {signals.length ? (
                           <form className="profile-form" onSubmit={handleSignalSave}>
                             <div className="profile-grid">
+                              <div className="field-block">
+                                <label htmlFor="signal-direction">Approach direction</label>
+                                <select id="signal-direction" value={signalForm.direction} onChange={(event) => setSignalForm((current) => ({ ...current, direction: event.target.value as SignalConfigForm['direction'] }))}>
+                                  <option value="">Not assigned</option>
+                                  <option value="NORTH">Northbound</option>
+                                  <option value="EAST">Eastbound</option>
+                                  <option value="SOUTH">Southbound</option>
+                                  <option value="WEST">Westbound</option>
+                                </select>
+                              </div>
                               <div className="field-block">
                                 <label htmlFor="signal-status">Current signal status</label>
                                 <select id="signal-status" value={signalForm.status} onChange={(event) => setSignalForm((current) => ({ ...current, status: event.target.value as SignalConfigForm['status'] }))}>

@@ -28,6 +28,7 @@ const signalId = "550e8400-e29b-41d4-a716-446655440000";
 const signal = {
     id: signalId,
     intersectionId: "660e8400-e29b-41d4-a716-446655440001",
+    direction: null,
     status: "RED" as const,
     greenDuration: 30,
     yellowDuration: 5,
@@ -94,6 +95,7 @@ test("updates a signal configuration and records the change", async () => {
 
     await handlers.updateConfig(request({
         status: "GREEN",
+        direction: "NORTH",
         greenDuration: 45,
         yellowDuration: 5,
         redDuration: 30,
@@ -102,10 +104,32 @@ test("updates a signal configuration and records the change", async () => {
     assert.equal(result.statusCode, 200);
     assert.deepEqual(persisted, {
         id: signalId,
-        data: { status: "GREEN", greenDuration: 45, yellowDuration: 5, redDuration: 30 },
+        data: { status: "GREEN", direction: "NORTH", greenDuration: 45, yellowDuration: 5, redDuration: 30 },
         userId: "admin-user",
     });
     assert.equal(result.body?.message, "Signal configuration updated successfully.");
+});
+
+test("rejects unsupported signal approach directions before persisting", async () => {
+    let called = false;
+    const handlers = createTrafficSignalHandlers(services({
+        updateSignalConfig: async () => {
+            called = true;
+            return signal;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.updateConfig(request({
+        status: "RED",
+        direction: "UP",
+        greenDuration: 30,
+        yellowDuration: 5,
+        redDuration: 30,
+    }, { id: signalId }), response);
+
+    assert.equal(result.statusCode, 400);
+    assert.equal(called, false);
 });
 
 test("rejects invalid timing values before persisting", async () => {
