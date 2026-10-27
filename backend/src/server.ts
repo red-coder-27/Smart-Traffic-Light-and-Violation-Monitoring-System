@@ -9,6 +9,8 @@ import intersectionRoutes from "./routes/intersectionRoutes.js";
 import trafficSignalRoutes from "./routes/trafficSignalRoutes.js";
 import violationRoutes from "./routes/violationRoutes.js";
 import challanRoutes from "./routes/challanRoutes.js";
+import emergencyPriorityRoutes from "./routes/emergencyPriorityRoutes.js";
+import { emergencyPriorityServices } from "./services/emergencyPriorityService.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,6 +24,7 @@ app.use("/api/intersections", intersectionRoutes);
 app.use("/api/traffic-signals", trafficSignalRoutes);
 app.use("/api/violations", violationRoutes);
 app.use("/api/challans", challanRoutes);
+app.use("/api/emergency-priorities", emergencyPriorityRoutes);
 
 app.get("/api/health", async (_req, res) => {
     try {
@@ -48,6 +51,16 @@ const isTestEnvironment =
     process.argv.includes("--test");
 
 if (!isTestEnvironment) {
+    void emergencyPriorityServices.expireStaleRequests().catch((error: unknown) => {
+        console.error("Initial emergency priority timeout sweep failed:", error);
+    });
+    const priorityTimeoutSweep = setInterval(() => {
+        void emergencyPriorityServices.expireStaleRequests().catch((error: unknown) => {
+            console.error("Emergency priority timeout sweep failed:", error);
+        });
+    }, 15_000);
+    priorityTimeoutSweep.unref();
+
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });

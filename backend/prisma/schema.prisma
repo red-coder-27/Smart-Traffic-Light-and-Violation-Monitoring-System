@@ -27,6 +27,27 @@ enum SignalStatus {
   GREEN
 }
 
+enum SignalDirection {
+  NORTH
+  EAST
+  SOUTH
+  WEST
+}
+
+enum EmergencyVehicleType {
+  AMBULANCE
+  FIRE_ENGINE
+  POLICE_VEHICLE
+}
+
+enum EmergencyPriorityStatus {
+  REQUESTED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  TIMED_OUT
+}
+
 enum ChallanStatus {
   UNPAID
   PAID
@@ -73,6 +94,8 @@ model User {
 
   profile UserProfile?
   signalConfigChanges SignalConfigHistory[]
+  requestedEmergencyPriorities EmergencyPriorityRequest[] @relation("RequestedEmergencyPriorities")
+  controlledEmergencyPriorities EmergencyPriorityRequest[] @relation("ControlledEmergencyPriorities")
   recordedViolations Violation[] @relation("RecordedViolations")
   violatingViolations Violation[] @relation("ViolatingUserViolations")
   uploadedEvidence Evidence[]
@@ -90,6 +113,7 @@ model Intersection {
   status    IntersectionStatus @default(ACTIVE)
   signals   TrafficSignal[]
   violations Violation[]
+  emergencyPriorities EmergencyPriorityRequest[]
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
@@ -101,6 +125,7 @@ model TrafficSignal {
   id               String                 @id @default(uuid())
   intersectionId   String
   intersection     Intersection           @relation(fields: [intersectionId], references: [id], onDelete: Cascade)
+  direction        SignalDirection?
   status           SignalStatus           @default(RED)
   greenDuration    Int                    @default(30)
   yellowDuration   Int                    @default(5)
@@ -109,8 +134,38 @@ model TrafficSignal {
   updatedAt        DateTime               @updatedAt
   configHistory    SignalConfigHistory[]
   violations       Violation[]
+  emergencyPriorities EmergencyPriorityRequest[]
 
+  @@unique([intersectionId, direction])
   @@map("traffic_signals")
+}
+
+model EmergencyPriorityRequest {
+  id                 String                  @id @default(uuid())
+  intersectionId     String
+  signalId           String
+  direction          SignalDirection
+  vehicleType        EmergencyVehicleType
+  status             EmergencyPriorityStatus @default(REQUESTED)
+  requestedByUserId  String
+  controlledByUserId String?
+  previousStatuses   String?
+  restorationError   String?
+  requestedAt        DateTime                @default(now())
+  validatedAt        DateTime?
+  activatedAt        DateTime?
+  endedAt            DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  intersection Intersection @relation(fields: [intersectionId], references: [id], onDelete: Restrict)
+  signal       TrafficSignal @relation(fields: [signalId], references: [id], onDelete: Restrict)
+  requestedBy  User          @relation("RequestedEmergencyPriorities", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  controlledBy User?         @relation("ControlledEmergencyPriorities", fields: [controlledByUserId], references: [id], onDelete: SetNull)
+
+  @@index([intersectionId, status])
+  @@index([requestedAt])
+  @@map("emergency_priority_requests")
 }
 
 model SignalConfigHistory {

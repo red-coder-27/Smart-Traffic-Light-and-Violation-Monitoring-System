@@ -165,6 +165,14 @@ test('authenticated citizen navigating to #challans renders challan view or load
   assert.ok(html.includes('Loading challans…') || html.includes('Digital Challans'))
 })
 
+test('authenticated citizen navigating to #emergency-priority sees restricted access', () => {
+  setupMockWindow('#emergency-priority', 'mock-citizen-token')
+  const html = renderToString(React.createElement(App))
+
+  assert.ok(html.includes('Access restricted: Administrator or Traffic Police role is required.'))
+  assert.ok(!html.includes('Create validated request'))
+})
+
 test('authenticated user on profile view sees "Challans & fines" navigation button', () => {
   setupMockWindow('', 'mock-citizen-token')
   const html = renderToString(React.createElement(App))
@@ -172,4 +180,3 @@ test('authenticated user on profile view sees "Challans & fines" navigation butt
   assert.ok(html.includes('id="nav-challans-btn"'))
   assert.ok(html.includes('Challans &amp; fines') || html.includes('Challans & fines'))
 })
-

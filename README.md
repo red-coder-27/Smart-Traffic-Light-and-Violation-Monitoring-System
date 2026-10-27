@@ -17,6 +17,53 @@ The current implementation contains Java modules for:
 
 > **Current Scope:** This repository represents the currently implemented project increment. It does not claim that all planned system features are implemented.
 
+### Emergency vehicle priority (software simulation)
+
+The backend supports an operator-triggered emergency-priority simulation for
+ambulances, fire engines, and police vehicles. This is **not** automatic vehicle
+detection: the application has no connected vehicle sensors, GPS tracking, or
+physical traffic-light controller. An Administrator or Traffic Police operator
+must manually select an intersection, a configured approach, and the vehicle
+type.
+
+Before creating a request, an Administrator assigns a direction to each
+applicable traffic signal in the existing Traffic signal management form.
+Directions are optional in storage so existing signal records remain valid.
+Only explicitly mapped approaches are offered for emergency requests.
+
+All emergency-priority endpoints require a bearer token and either the
+`ADMIN` or `TRAFFIC_POLICE` role:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/emergency-priorities/options` | Active intersections and configured approaches |
+| `GET` | `/api/emergency-priorities` | Recent request history |
+| `POST` | `/api/emergency-priorities` | Validate and record a manual request |
+| `POST` | `/api/emergency-priorities/:id/activate` | Activate a validated simulation |
+| `POST` | `/api/emergency-priorities/:id/complete` | Record vehicle passage and restore normal state |
+| `POST` | `/api/emergency-priorities/:id/cancel` | Cancel a request or restore after active priority |
+
+Create a request with `intersectionId`, `direction` (`NORTH`, `EAST`, `SOUTH`,
+or `WEST`), and `vehicleType` (`AMBULANCE`, `FIRE_ENGINE`, or
+`POLICE_VEHICLE`). At most one requested or active priority is allowed per
+intersection. Activation serializes controller operations and records each
+signal transition in signal configuration history. A conflicting green phase
+moves through its configured yellow interval, all approaches are set to red,
+and a one-second simulated all-red clearance precedes the priority green.
+Completion, cancellation, and the two-minute timeout move the priority signal
+through yellow and red, clear all signals, then restore the previous green
+approach when one existed. The server checks for expired requests every
+15 seconds. The application has no autonomous per-intersection phase
+scheduler, so restoration returns the saved signal-status snapshot (or
+all-red when no approach was previously green); it does not resume a timed
+hardware-controller cycle.
+
+The additive Prisma migration is
+`backend/prisma/migrations/20261027000000_add_emergency_priority/migration.sql`.
+It preserves existing signal rows and leaves their new direction unset. Review
+and apply migrations through the normal deployment process; do not reset or
+recreate the database.
+
 ---
 
 ## 🛠️ Technology Stack
