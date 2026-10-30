@@ -3,6 +3,7 @@ import './App.css'
 import TrafficReports from './TrafficReports'
 import ChallanPayment from './ChallanPayment'
 import EmergencyPriority from './EmergencyPriority'
+import ViolationAppeal from './ViolationAppeal'
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || 'http://localhost:5000'
 
@@ -171,6 +172,7 @@ function App() {
   const isTrafficReports = route === 'traffic-reports'
   const isChallans = route === 'challans'
   const isEmergencyPriority = route === 'emergency-priority'
+  const isAppeals = route === 'appeals'
   const isAuthorizedForReports = role === 'ADMIN' || role === 'TRAFFIC_POLICE'
   const [intersectionLoading, setIntersectionLoading] = useState(false)
   const [intersectionSaving, setIntersectionSaving] = useState(false)
@@ -732,17 +734,17 @@ function App() {
       </header>
 
       <section
-        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority ? ' registration-layout-wide' : ''}`}
-        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : isChallans ? 'challans-title' : isEmergencyPriority ? 'emergency-priority-title' : 'form-title'}
+        className={`registration-layout${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority || isAppeals ? ' registration-layout-wide' : ''}`}
+        aria-labelledby={isTrafficReports ? 'traffic-reports-title' : isChallans ? 'challans-title' : isEmergencyPriority ? 'emergency-priority-title' : isAppeals ? 'appeals-title' : 'form-title'}
       >
         <div className="intro-panel">
           <div className="eyebrow"><span /> COMMUNITY PORTAL</div>
           <h1>Move with<br />the city.</h1>
-          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : isChallans ? 'Review citations and settle verified traffic fines securely.' : isEmergencyPriority ? 'Coordinate a simulated emergency approach with safe signal clearance.' : 'Register, sign in, and keep your profile current.'}</p>
+          <p>{isTrafficReports ? 'Monitor traffic violations, trends, and intersection analytics.' : isChallans ? 'Review citations and settle verified traffic fines securely.' : isEmergencyPriority ? 'Coordinate a simulated emergency approach with safe signal clearance.' : isAppeals ? 'Submit a formal appeal for a recorded traffic violation.' : 'Register, sign in, and keep your profile current.'}</p>
           <div className="street-lines" aria-hidden="true"><span /><span /><span /><span /><span /></div>
         </div>
 
-        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority ? ' form-panel-wide' : ''}`}>
+        <div className={`form-panel${(role === 'ADMIN' || role === 'TRAFFIC_POLICE') || isTrafficReports || isChallans || isEmergencyPriority || isAppeals ? ' form-panel-wide' : ''}`}>
           {isTrafficReports ? (
             !token ? (
               <>
@@ -931,6 +933,47 @@ function App() {
                   <EmergencyPriority token={token} apiBaseUrl={API_BASE_URL} />
                 </div>
               )
+          ) : isAppeals ? (
+            !token ? (
+              <>
+                <div className="form-heading">
+                  <span className="form-kicker">CITIZEN COMPLIANCE</span>
+                  <h2 id="form-title">Violation appeal sign in</h2>
+                  <p>Please log in to submit or view your violation appeals.</p>
+                </div>
+                <div className="report-error" role="alert" style={{ marginBottom: 16 }}>
+                  Authentication required: Please log in to submit a violation appeal.
+                </div>
+                <div className="auth-stack">
+                  <form onSubmit={handleLogin}>
+                    <label htmlFor="login-email">Email address</label>
+                    <input id="login-email" type="email" value={loginForm.email} onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))} autoComplete="email" placeholder="you@example.com" required />
+                    <label htmlFor="login-password">Password</label>
+                    <input id="login-password" type="password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} autoComplete="current-password" placeholder="Enter your password" required />
+                    <button type="submit" disabled={loginLoading}>
+                      {loginLoading ? "Signing in…" : "Log in"}
+                    </button>
+                  </form>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <a className="secondary-button" href="#profile" onClick={(event) => { event.preventDefault(); navigateTo("") }}>
+                    ← Back to registration
+                  </a>
+                </div>
+              </>
+            ) : profileLoading ? (
+              <div className="traffic-reports-panel">
+                <p className="profile-status" role="status">Loading appeals…</p>
+              </div>
+            ) : (
+              <ViolationAppeal
+                token={token}
+                role={role}
+                apiBaseUrl={API_BASE_URL}
+                onBackToProfile={() => navigateTo("")}
+                onLogout={handleLogout}
+              />
+            )
           ) : (
             <>
               <div className="form-heading">
@@ -954,6 +997,17 @@ function App() {
                         }}
                       >
                         Challans & fines
+                      </a>
+                      <a
+                        className="secondary-button"
+                        href="#appeals"
+                        id="nav-appeals-btn"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          navigateTo('appeals')
+                        }}
+                      >
+                        My appeals
                       </a>
                       {(role === 'ADMIN' || role === 'TRAFFIC_POLICE') && (
                         <a

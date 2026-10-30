@@ -27,6 +27,8 @@ type ViolationRecord = {
     updatedAt: Date;
     intersection?: { id: string; name: string; location: string } | null;
     trafficSignal?: { id: string; status: "RED" | "YELLOW" | "GREEN" } | null;
+    challan?: { id: string; challanNumber: string; amount: number; status: string } | null;
+    appeal?: { id: string; status: string; reason: string; createdAt: Date } | null;
 };
 
 type ViolationInput = {
@@ -226,6 +228,8 @@ const handlers = createViolationHandlers({
         include: {
             intersection: { select: { id: true, name: true, location: true } },
             trafficSignal: { select: { id: true, status: true } },
+            challan: { select: { id: true, challanNumber: true, amount: true, status: true } },
+            appeal: { select: { id: true, status: true, reason: true, createdAt: true } },
         },
     }),
     getViolation: (id, violatingUserId) => prisma.violation.findFirst({
@@ -233,6 +237,8 @@ const handlers = createViolationHandlers({
         include: {
             intersection: { select: { id: true, name: true, location: true } },
             trafficSignal: { select: { id: true, status: true } },
+            challan: { select: { id: true, challanNumber: true, amount: true, status: true } },
+            appeal: { select: { id: true, status: true, reason: true, createdAt: true } },
         },
     }),
     intersectionExists: async (id) => Boolean(await prisma.intersection.findUnique({ where: { id }, select: { id: true } })),

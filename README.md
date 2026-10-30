@@ -64,6 +64,32 @@ It preserves existing signal rows and leaves their new direction unset. Review
 and apply migrations through the normal deployment process; do not reset or
 recreate the database.
 
+### Violation appeal submission
+
+The application supports a formal violation appeal submission workflow allowing
+citizens to contest recorded traffic citations linked to their account.
+
+All violation appeal endpoints require authentication via Bearer token:
+
+| Method | Path | Allowed Roles | Purpose |
+|---|---|---|---|
+| `GET` | `/api/appeals` | `ADMIN`, `TRAFFIC_POLICE`, `CITIZEN` | List submitted appeals (citizens see only their own) |
+| `POST` | `/api/appeals` | `ADMIN`, `CITIZEN` | Submit a formal appeal for an eligible violation |
+| `GET` | `/api/appeals/:id` | `ADMIN`, `TRAFFIC_POLICE`, `CITIZEN` | View details of a specific appeal |
+| `PATCH` | `/api/appeals/:id/status` | `ADMIN`, `TRAFFIC_POLICE` | Review and update appeal status (`APPROVED` or `REJECTED`) |
+
+To appeal, a citizen supplies a valid `violationId` and an appeal `reason`
+(10 to 1000 characters). Submissions start in `PENDING` status. Submitting an appeal
+does not automatically cancel, pause, or modify fines or challans. Duplicate appeals
+for the same violation are rejected with a 409 Conflict. Citizens cannot view or appeal
+violations belonging to other accounts. Only `ADMIN` and `TRAFFIC_POLICE` roles may
+approve or reject appeals with mandatory review records.
+
+The additive Prisma migration is
+`backend/prisma/migrations/20261029000000_add_violation_appeals/migration.sql`.
+Review and apply migrations through the normal deployment process; do not reset or
+recreate the database.
+
 ---
 
 ## 🛠️ Technology Stack
