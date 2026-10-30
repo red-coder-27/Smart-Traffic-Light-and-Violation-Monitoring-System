@@ -10,6 +10,7 @@ import trafficSignalRoutes from "./routes/trafficSignalRoutes.js";
 import violationRoutes from "./routes/violationRoutes.js";
 import challanRoutes from "./routes/challanRoutes.js";
 import emergencyPriorityRoutes from "./routes/emergencyPriorityRoutes.js";
+import appealRoutes from "./routes/appealRoutes.js";
 import { emergencyPriorityServices } from "./services/emergencyPriorityService.js";
 
 const app = express();
@@ -25,6 +26,7 @@ app.use("/api/traffic-signals", trafficSignalRoutes);
 app.use("/api/violations", violationRoutes);
 app.use("/api/challans", challanRoutes);
 app.use("/api/emergency-priorities", emergencyPriorityRoutes);
+app.use("/api/appeals", appealRoutes);
 
 app.get("/api/health", async (_req, res) => {
     try {
