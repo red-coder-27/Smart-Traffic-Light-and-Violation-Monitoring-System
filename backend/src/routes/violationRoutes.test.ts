@@ -35,6 +35,7 @@ async function request(path: string, method = "GET", token?: string) {
 test("the route stack rejects unauthenticated create, list, and detail requests", async () => {
     for (const [method, path] of [
         ["POST", "/api/violations"],
+        ["GET", "/api/violations/citizens"],
         ["GET", "/api/violations"],
         ["GET", "/api/violations/report"],
         ["GET", "/api/violations/550e8400-e29b-41d4-a716-446655440000"],
@@ -82,6 +83,13 @@ test("the route stack rejects citizen creation and upload", async () => {
         success: false,
         message: "Forbidden: insufficient permissions",
     });
+
+    const citizensRes = await request(
+        "/api/violations/citizens",
+        "GET",
+        tokenFor("citizen-id", "CITIZEN"),
+    );
+    assert.equal(citizensRes.status, 403);
 });
 
 test("the route stack rejects unexpected roles for retrieval", async () => {

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import prisma from "../lib/prisma.js";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { generateChallanNumber, getFineAmount } from "../services/challanRules.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_PAYMENT_METHODS = new Set([
@@ -8,19 +9,6 @@ const ALLOWED_PAYMENT_METHODS = new Set([
     "SIMULATED_CARD",
     "SIMULATED_NETBANKING",
 ]);
-
-export const DEFAULT_FINE_AMOUNTS: Record<string, number> = {
-    RED_LIGHT: 1000,
-    SPEEDING: 1500,
-    OVER_SPEEDING: 2000,
-    NO_HELMET: 500,
-    NO_SEATBELT: 500,
-    WRONG_WAY: 1000,
-    ILLEGAL_PARKING: 500,
-    DRIVING_WITHOUT_LICENSE: 2000,
-    RASH_DRIVING: 2500,
-};
-export const FALLBACK_FINE_AMOUNT = 500;
 
 export type ChallanRecord = {
     id: string;
@@ -42,6 +30,7 @@ export type ChallanRecord = {
         description: string | null;
         intersection?: { id: string; name: string; location: string } | null;
         trafficSignal?: { id: string; status: string } | null;
+        evidence?: Array<{ id: string; originalName: string; mimeType: string; createdAt: Date }>;
     } | null;
     citizen?: {
         id: string;
@@ -100,12 +89,6 @@ export type ChallanServices = {
 
 function getAuthenticatedUser(req: Request): { id: string; role: string } | null {
     return (req as AuthenticatedRequest).authenticatedUser ?? null;
-}
-
-function generateChallanNumber(): string {
-    const datePrefix = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const randomHex = Math.random().toString(16).slice(2, 8).toUpperCase();
-    return `CHAL-${datePrefix}-${randomHex}`;
 }
 
 function generatePaymentReference(): string {
@@ -173,19 +156,17 @@ export function createChallanHandlers(services: ChallanServices) {
             }
 
             const body = (req.body ?? {}) as Record<string, unknown>;
+            if (Object.keys(body).some((key) => key !== "violationId" && key !== "notes")) {
+                res.status(400).json({
+                    success: false,
+                    message: "Only violationId and notes may be supplied; fine amounts are configured by violation type",
+                });
+                return;
+            }
             const violationId = body.violationId;
             if (typeof violationId !== "string" || !UUID_PATTERN.test(violationId)) {
                 res.status(400).json({ success: false, message: "Valid violationId is required" });
                 return;
-            }
-
-            let amount: number | undefined;
-            if (body.amount !== undefined) {
-                if (typeof body.amount !== "number" || Number.isNaN(body.amount) || body.amount <= 0 || body.amount > 100000) {
-                    res.status(400).json({ success: false, message: "Amount must be a positive number up to 100000" });
-                    return;
-                }
-                amount = body.amount;
             }
 
             let notes: string | undefined;
@@ -207,6 +188,11 @@ export function createChallanHandlers(services: ChallanServices) {
                     res.status(400).json({ success: false, message: "Violation has no citizen assigned" });
                     return;
                 }
+                const amount = getFineAmount(violation.violationType);
+                if (amount === null) {
+                    res.status(400).json({ success: false, message: "Unknown violation type; no configured fine amount" });
+                    return;
+                }
 
                 const exists = await services.challanExistsForViolation(violationId);
                 if (exists) {
@@ -214,16 +200,22 @@ export function createChallanHandlers(services: ChallanServices) {
                     return;
                 }
 
-                const finalAmount = amount ?? (DEFAULT_FINE_AMOUNTS[violation.violationType] ?? FALLBACK_FINE_AMOUNT);
                 const challan = await services.createChallan({
                     violationId,
                     citizenId: violation.violatingUserId,
-                    amount: finalAmount,
+                    amount,
                     notes,
                 });
 
                 res.status(201).json({ success: true, challan });
             } catch (error) {
+                if (isUniqueConstraintError(error)) {
+                    res.status(409).json({
+                        success: false,
+                        message: "Challan creation conflicted with an existing unique value; retry the request",
+                    });
+                    return;
+                }
                 console.error("Creating challan failed:", error);
                 res.status(500).json({ success: false, message: "Internal server error" });
             }
@@ -374,6 +366,13 @@ export function createChallanHandlers(services: ChallanServices) {
     };
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+    return typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "P2002";
+}
+
 const defaultServices: ChallanServices = {
     listChallans: async (citizenId) => {
         // Find existing challans
@@ -389,6 +388,7 @@ const defaultServices: ChallanServices = {
                         description: true,
                         intersection: { select: { id: true, name: true, location: true } },
                         trafficSignal: { select: { id: true, status: true } },
+                        evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
                     },
                 },
                 citizen: {
@@ -409,66 +409,6 @@ const defaultServices: ChallanServices = {
             },
         });
 
-        // If citizenId provided, also check if there are violations for this citizen without a challan,
-        // and auto-generate an initial challan for them so citizen can view and pay immediately
-        if (citizenId) {
-            const existingViolationIds = new Set(challans.map((c) => c.violationId));
-            const unbilledViolations = await prisma.violation.findMany({
-                where: {
-                    violatingUserId: citizenId,
-                    id: { notIn: Array.from(existingViolationIds) },
-                },
-                select: { id: true, violationType: true },
-            });
-
-            if (unbilledViolations.length > 0) {
-                for (const unbilled of unbilledViolations) {
-                    try {
-                        const amount = DEFAULT_FINE_AMOUNTS[unbilled.violationType] ?? FALLBACK_FINE_AMOUNT;
-                        const newChallan = await prisma.challan.create({
-                            data: {
-                                challanNumber: generateChallanNumber(),
-                                violationId: unbilled.id,
-                                citizenId,
-                                amount,
-                                status: "UNPAID",
-                            },
-                            include: {
-                                violation: {
-                                    select: {
-                                        id: true,
-                                        occurredAt: true,
-                                        violationType: true,
-                                        description: true,
-                                        intersection: { select: { id: true, name: true, location: true } },
-                                        trafficSignal: { select: { id: true, status: true } },
-                                    },
-                                },
-                                citizen: {
-                                    select: { id: true, name: true, email: true, phone: true },
-                                },
-                                transactions: {
-                                    select: {
-                                        id: true,
-                                        amount: true,
-                                        status: true,
-                                        reference: true,
-                                        paymentMethod: true,
-                                        failureReason: true,
-                                        createdAt: true,
-                                    },
-                                    orderBy: { createdAt: "desc" },
-                                },
-                            },
-                        });
-                        challans.unshift(newChallan as ChallanRecord);
-                    } catch {
-                        // Concurrent creation or already created, ignore error
-                    }
-                }
-            }
-        }
-
         return challans as ChallanRecord[];
     },
 
@@ -487,6 +427,7 @@ const defaultServices: ChallanServices = {
                         description: true,
                         intersection: { select: { id: true, name: true, location: true } },
                         trafficSignal: { select: { id: true, status: true } },
+                        evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
                     },
                 },
                 citizen: {
@@ -541,6 +482,7 @@ const defaultServices: ChallanServices = {
                         description: true,
                         intersection: { select: { id: true, name: true, location: true } },
                         trafficSignal: { select: { id: true, status: true } },
+                        evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
                     },
                 },
                 citizen: {
@@ -571,6 +513,7 @@ const defaultServices: ChallanServices = {
                                 description: true,
                                 intersection: { select: { id: true, name: true, location: true } },
                                 trafficSignal: { select: { id: true, status: true } },
+                                evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
                             },
                         },
                         citizen: {
@@ -606,6 +549,7 @@ const defaultServices: ChallanServices = {
                             description: true,
                             intersection: { select: { id: true, name: true, location: true } },
                             trafficSignal: { select: { id: true, status: true } },
+                            evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
                         },
                     },
                     citizen: {

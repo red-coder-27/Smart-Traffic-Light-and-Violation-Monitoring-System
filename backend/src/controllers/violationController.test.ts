@@ -53,6 +53,7 @@ function services(overrides: Partial<ViolationServices> = {}): ViolationServices
         signalBelongsToIntersection: async () => true,
         getUser: async (id) => ({ id, role: "TRAFFIC_POLICE", isActive: true }),
         isCitizen: async () => true,
+        listCitizens: async () => [],
         ...overrides,
     };
 }
@@ -68,9 +69,11 @@ const validBody = {
 
 test("records a valid violation using the authenticated recorder", async () => {
     let saved: Record<string, unknown> | undefined;
+    let challanAmount: number | undefined;
     const handlers = createViolationHandlers(services({
-        createViolation: async (data) => {
+        createViolation: async (data, amount) => {
             saved = data;
+            challanAmount = amount;
             return violation;
         },
     }));
@@ -90,6 +93,101 @@ test("records a valid violation using the authenticated recorder", async () => {
         violatingUserId: citizenId,
         recordedByUserId: violation.recordedByUserId,
     });
+    assert.equal(challanAmount, 1000);
+    assert.equal(result.body?.challan, null);
+});
+
+test("returns the generated challan with its number, configured amount, and unpaid status", async () => {
+    const generatedChallan = {
+        id: "challan-1",
+        challanNumber: "CHAL-20261009-0123456789ABCDEF0123456789ABCDEF",
+        amount: 1000,
+        status: "UNPAID",
+    };
+    const handlers = createViolationHandlers(services({
+        createViolation: async () => ({ ...violation, challan: generatedChallan }),
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request(validBody, {}, { id: violation.recordedByUserId, role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 201);
+    assert.deepEqual(result.body?.challan, generatedChallan);
+});
+
+test("records an unassigned violation without creating a challan", async () => {
+    let challanAmount: number | undefined;
+    const handlers = createViolationHandlers(services({
+        createViolation: async (_data, amount) => {
+            challanAmount = amount;
+            return { ...violation, violatingUserId: null };
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ ...validBody, violatingUserId: undefined }, {}, { id: violation.recordedByUserId, role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 201);
+    assert.equal(challanAmount, undefined);
+});
+
+test("records unknown violation types without assigning an unconfigured fine", async () => {
+    let challanAmount: number | undefined;
+    const handlers = createViolationHandlers(services({
+        createViolation: async (_data, amount) => {
+            challanAmount = amount;
+            return { ...violation, violationType: "UNLISTED_TYPE", challan: null };
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ ...validBody, violationType: "UNLISTED_TYPE" }, {}, { id: violation.recordedByUserId, role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 201);
+    assert.equal(challanAmount, undefined);
+    assert.equal(result.body?.challan, null);
+});
+
+test("reports a database failure without returning a successful violation response", async () => {
+    const handlers = createViolationHandlers(services({
+        createViolation: async () => {
+            throw new Error("database unavailable");
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(request(validBody, {}, { id: "operator", role: "ADMIN" }), response);
+
+    assert.equal(result.statusCode, 500);
+    assert.equal(result.body?.success, false);
+});
+
+test("lists citizen assignment options only to authenticated operators", async () => {
+    let called = false;
+    const handlers = createViolationHandlers(services({
+        listCitizens: async () => {
+            called = true;
+            return [{ id: citizenId, name: "Citizen", email: "citizen@example.com" }];
+        },
+    }));
+    const unauthorized = makeResponse();
+    await handlers.listCitizens(request({}, {}, { id: citizenId, role: "CITIZEN" }), unauthorized.response);
+    assert.equal(unauthorized.result.statusCode, 403);
+    assert.equal(called, false);
+
+    const authorized = makeResponse();
+    await handlers.listCitizens(request({}, {}, { id: "operator", role: "TRAFFIC_POLICE" }), authorized.response);
+    assert.equal(authorized.result.statusCode, 200);
+    assert.equal(called, true);
 });
 
 test("rejects invalid input before persistence", async () => {

@@ -393,13 +393,23 @@ test("admin listChallans returns all challans without citizen scope", async () =
 });
 
 test("admin can generate a challan for a violation", async () => {
-    const services = createMockServices();
+    let capturedAmount: number | undefined;
+    const services = createMockServices({
+        createChallan: async (data) => {
+            capturedAmount = data.amount;
+            return {
+                ...mockUnpaidChallan,
+                amount: data.amount,
+                notes: data.notes ?? null,
+            };
+        },
+    });
     const handlers = createChallanHandlers(services);
     const { response, result } = makeResponse();
 
     await handlers.create(
         request(
-            { violationId, amount: 1500, notes: "Overspeeding at intersection" },
+            { violationId, notes: "Red light at intersection" },
             {},
             { id: "admin-id", role: "ADMIN" },
         ),
@@ -409,7 +419,117 @@ test("admin can generate a challan for a violation", async () => {
     assert.equal(result.statusCode, 201);
     assert.equal(result.body?.success, true);
     const created = result.body?.challan as Record<string, unknown>;
-    assert.equal(created.amount, 1500);
+    assert.equal(created.amount, 1000);
+    assert.equal(capturedAmount, 1000);
+});
+
+test("manual challan creation rejects unknown violation types", async () => {
+    const services = createMockServices({
+        getViolation: async () => ({ id: violationId, violatingUserId: citizenId, violationType: "UNLISTED_TYPE" }),
+    });
+    const handlers = createChallanHandlers(services);
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ violationId }, {}, { id: "admin-id", role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body?.success, false);
+});
+
+test("manual challan creation reports concurrent duplicate conflicts", async () => {
+    const handlers = createChallanHandlers(createMockServices({
+        createChallan: async () => {
+            throw { code: "P2002" };
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ violationId }, {}, { id: "admin-id", role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 409);
+});
+
+test("manual challan creation prevents duplicate challans for one violation", async () => {
+    let createCalled = false;
+    const handlers = createChallanHandlers(createMockServices({
+        challanExistsForViolation: async () => true,
+        createChallan: async () => {
+            createCalled = true;
+            return mockUnpaidChallan;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ violationId }, {}, { id: "admin-id", role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 409);
+    assert.equal(createCalled, false);
+});
+
+test("manual challan creation rejects caller-supplied fine amounts", async () => {
+    let createCalled = false;
+    const handlers = createChallanHandlers(createMockServices({
+        createChallan: async () => {
+            createCalled = true;
+            return mockUnpaidChallan;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.create(
+        request({ violationId, amount: 1 }, {}, { id: "admin-id", role: "ADMIN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 400);
+    assert.equal(createCalled, false);
+});
+
+test("challan details can be retrieved using the unique challan number", async () => {
+    let requestedIdentifier = "";
+    const handlers = createChallanHandlers(createMockServices({
+        getChallan: async (identifier) => {
+            requestedIdentifier = identifier;
+            return identifier === mockUnpaidChallan.challanNumber ? mockUnpaidChallan : null;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.getOne(
+        request({}, { id: mockUnpaidChallan.challanNumber }, { id: citizenId, role: "CITIZEN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(requestedIdentifier, mockUnpaidChallan.challanNumber);
+});
+
+test("citizens cannot retrieve another citizen's challan", async () => {
+    let requestedCitizenId: string | undefined;
+    const handlers = createChallanHandlers(createMockServices({
+        getChallan: async (_identifier, ownerId) => {
+            requestedCitizenId = ownerId;
+            return null;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.getOne(
+        request({}, { id: challanId }, { id: otherCitizenId, role: "CITIZEN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 404);
+    assert.equal(requestedCitizenId, otherCitizenId);
 });
 
 test("citizen cannot generate a challan", async () => {
