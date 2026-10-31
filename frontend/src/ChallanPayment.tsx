@@ -27,11 +27,18 @@ export type ChallanItem = {
       id: string
       status: string
     } | null
+    evidence?: Array<{
+      id: string
+      originalName: string
+      mimeType: string
+      createdAt: string
+    }>
   }
   citizen?: {
     id: string
     name: string
     email: string
+    phone?: string | null
   }
 }
 
@@ -402,6 +409,14 @@ export default function ChallanPayment({
 
                 <div className="challan-card-body">
                   <div className="challan-violation-info">
+                    <div className="violation-detail-row">
+                      <span className="detail-label">Challan ID:</span>
+                      <span>{challan.id}</span>
+                    </div>
+                    <div className="violation-detail-row">
+                      <span className="detail-label">Violation ID:</span>
+                      <span>{challan.violationId}</span>
+                    </div>
                     <div className="violation-headline">
                       <strong>{challan.violation?.violationType || 'TRAFFIC_VIOLATION'}</strong>
                       {challan.violation?.intersection && (
@@ -426,10 +441,21 @@ export default function ChallanPayment({
                         <span style={{ fontStyle: 'italic' }}>{challan.violation.description}</span>
                       </div>
                     )}
-                    {role !== 'CITIZEN' && challan.citizen && (
+                    {challan.violation?.evidence && challan.violation.evidence.length > 0 && (
                       <div className="violation-detail-row">
-                        <span className="detail-label">Citizen:</span>
-                        <span>{challan.citizen.name} ({challan.citizen.email})</span>
+                        <span className="detail-label">Evidence:</span>
+                        <span>
+                          {challan.violation.evidence.map((item) => `${item.originalName} (${item.id})`).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    {challan.citizen && (
+                      <div className="violation-detail-row">
+                        <span className="detail-label">{role === 'CITIZEN' ? 'Issued to:' : 'Citizen:'}</span>
+                        <span>
+                          {challan.citizen.name} ({challan.citizen.email})
+                          {challan.citizen.phone ? ` · ${challan.citizen.phone}` : ''}
+                        </span>
                       </div>
                     )}
                   </div>

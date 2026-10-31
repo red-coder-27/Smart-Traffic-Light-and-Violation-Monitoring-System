@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import prisma from "../lib/prisma.js";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
+import { generateChallanNumber, getFineAmount } from "../services/challanRules.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_FIELDS = new Set([
@@ -47,13 +48,17 @@ type UserAccount = {
 };
 
 export type ViolationServices = {
-    createViolation(data: ViolationInput & { recordedByUserId: string }): Promise<ViolationRecord>;
+    createViolation(
+        data: ViolationInput & { recordedByUserId: string },
+        challanAmount?: number,
+    ): Promise<ViolationRecord>;
     listViolations(violatingUserId?: string): Promise<ViolationRecord[]>;
     getViolation(id: string, violatingUserId?: string): Promise<ViolationRecord | null>;
     intersectionExists(id: string): Promise<boolean>;
     signalBelongsToIntersection(signalId: string, intersectionId: string): Promise<boolean>;
     getUser(id: string): Promise<UserAccount | null>;
     isCitizen(id: string): Promise<boolean>;
+    listCitizens(): Promise<Array<{ id: string; name: string; email: string }>>;
 };
 
 function isDatabaseError(error: unknown, code: string): boolean {
@@ -147,14 +152,44 @@ export function createViolationHandlers(services: ViolationServices) {
                 const violation = await services.createViolation({
                     ...data,
                     recordedByUserId: authenticatedUser.id,
+                }, data.violatingUserId ? getFineAmount(data.violationType) ?? undefined : undefined);
+                res.status(201).json({
+                    success: true,
+                    violation,
+                    challan: violation.challan ?? null,
                 });
-                res.status(201).json({ success: true, violation });
             } catch (error) {
                 if (isDatabaseError(error, "P2003") || isDatabaseError(error, "P2025")) {
                     res.status(404).json({ success: false, message: "Referenced violation data was not found" });
                     return;
                 }
+                if (isDatabaseError(error, "P2002")) {
+                    res.status(409).json({
+                        success: false,
+                        message: "Challan creation conflicted with an existing unique value; retry the request",
+                    });
+                    return;
+                }
                 console.error("Creating violation failed:", error);
+                res.status(500).json({ success: false, message: "Internal server error" });
+            }
+        },
+        listCitizens: async (req: Request, res: Response): Promise<void> => {
+            const authenticatedUser = getAuthenticatedUser(req);
+            if (!authenticatedUser) {
+                res.status(401).json({ success: false, message: "Authentication required" });
+                return;
+            }
+            if (authenticatedUser.role !== "ADMIN" && authenticatedUser.role !== "TRAFFIC_POLICE") {
+                res.status(403).json({ success: false, message: "Forbidden: insufficient permissions" });
+                return;
+            }
+
+            try {
+                const citizens = await services.listCitizens();
+                res.json({ success: true, citizens });
+            } catch (error) {
+                console.error("Listing citizens for violation assignment failed:", error);
                 res.status(500).json({ success: false, message: "Internal server error" });
             }
         },
@@ -215,12 +250,35 @@ export function createViolationHandlers(services: ViolationServices) {
 }
 
 const handlers = createViolationHandlers({
-    createViolation: (data) => prisma.violation.create({
-        data,
-        include: {
-            intersection: { select: { id: true, name: true, location: true } },
-            trafficSignal: { select: { id: true, status: true } },
-        },
+    createViolation: async (data, challanAmount) => prisma.$transaction(async (tx) => {
+        const createdViolation = await tx.violation.create({
+            data,
+            include: {
+                intersection: { select: { id: true, name: true, location: true } },
+                trafficSignal: { select: { id: true, status: true } },
+            },
+        });
+
+        if (challanAmount !== undefined && data.violatingUserId) {
+            await tx.challan.create({
+                data: {
+                    challanNumber: generateChallanNumber(),
+                    violationId: createdViolation.id,
+                    citizenId: data.violatingUserId,
+                    amount: challanAmount,
+                    status: "UNPAID",
+                },
+            });
+        }
+
+        return tx.violation.findUniqueOrThrow({
+            where: { id: createdViolation.id },
+            include: {
+                intersection: { select: { id: true, name: true, location: true } },
+                trafficSignal: { select: { id: true, status: true } },
+                challan: { select: { id: true, challanNumber: true, amount: true, status: true } },
+            },
+        });
     }),
     listViolations: (violatingUserId) => prisma.violation.findMany({
         where: violatingUserId ? { violatingUserId } : undefined,
@@ -250,11 +308,17 @@ const handlers = createViolationHandlers({
         select: { id: true, role: true, isActive: true },
     }),
     isCitizen: async (id) => Boolean(await prisma.user.findFirst({
-        where: { id, role: "CITIZEN" },
+        where: { id, role: "CITIZEN", isActive: true },
         select: { id: true },
     })),
+    listCitizens: () => prisma.user.findMany({
+        where: { role: "CITIZEN", isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, email: true },
+    }),
 });
 
 export const createViolation = handlers.create;
+export const listCitizens = handlers.listCitizens;
 export const listViolations = handlers.list;
 export const getViolation = handlers.getOne;

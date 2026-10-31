@@ -72,6 +72,16 @@ type ViolationForm = {
   trafficSignalId: string
   violationType: string
   description: string
+  violatingUserId: string
+}
+
+type CitizenOption = { id: string; name: string; email: string }
+
+type GeneratedChallan = {
+  id: string
+  challanNumber: string
+  amount: number
+  status: string
 }
 
 const emptyIntersection: IntersectionForm = {
@@ -98,6 +108,7 @@ const emptyViolation: ViolationForm = {
   trafficSignalId: '',
   violationType: '',
   description: '',
+  violatingUserId: '',
 }
 
 function readStoredToken() {
@@ -195,7 +206,10 @@ function App() {
     occurredAt: string
     violationType: string
     intersection?: { name: string; location: string } | null
+    violatingUserId?: string | null
+    challan?: GeneratedChallan | null
   }>>([])
+  const [citizens, setCitizens] = useState<CitizenOption[]>([])
 
   useEffect(() => {
     if (!token) {
@@ -268,6 +282,27 @@ function App() {
     }
 
     void fetchIntersections()
+  }, [role, token])
+
+  useEffect(() => {
+    if (!token || role !== 'ADMIN') {
+      return
+    }
+
+    const fetchCitizens = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/violations/citizens`, {
+          headers: { Authorization: 'Bearer ' + token },
+        })
+        const result = await response.json() as { message?: string; citizens?: CitizenOption[] }
+        if (!response.ok) throw new Error(result.message ?? 'Unable to load citizen accounts.')
+        setCitizens(result.citizens ?? [])
+      } catch (error) {
+        setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to load citizen accounts.' })
+      }
+    }
+
+    void fetchCitizens()
   }, [role, token])
 
   useEffect(() => {
@@ -705,17 +740,27 @@ function App() {
         },
         body: JSON.stringify({
           ...violationForm,
+          violatingUserId: violationForm.violatingUserId || undefined,
           occurredAt: new Date(violationForm.occurredAt).toISOString(),
         }),
       })
-      const result = await response.json() as { message?: string; violation?: typeof violations[number] }
+      const result = await response.json() as {
+        message?: string
+        violation?: typeof violations[number]
+        challan?: GeneratedChallan | null
+      }
       if (!response.ok || !result.violation) {
         throw new Error(result.message ?? 'Unable to record the violation.')
       }
 
       setViolations((current) => [result.violation!, ...current])
       setViolationForm({ ...emptyViolation, occurredAt: new Date().toISOString().slice(0, 16) })
-      setFeedback({ kind: 'success', text: `Violation recorded with ID ${result.violation.id}.` })
+      setFeedback({
+        kind: 'success',
+        text: result.challan
+          ? `Violation recorded and challan ${result.challan.challanNumber} issued for ₹${result.challan.amount.toLocaleString()}.`
+          : `Violation recorded with ID ${result.violation.id}. No challan was issued because the violation has no eligible citizen or configured fine.`,
+      })
     } catch (error) {
       setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Unable to record the violation.' })
     } finally {
@@ -1238,6 +1283,20 @@ function App() {
                           />
                         </div>
                         <div className="field-block">
+                          <label htmlFor="violation-citizen">Assigned citizen</label>
+                          <select
+                            id="violation-citizen"
+                            value={violationForm.violatingUserId}
+                            onChange={(event) => setViolationForm((current) => ({ ...current, violatingUserId: event.target.value }))}
+                          >
+                            <option value="">Not assigned</option>
+                            {citizens.map((citizen) => (
+                              <option key={citizen.id} value={citizen.id}>{citizen.name} ({citizen.email})</option>
+                            ))}
+                          </select>
+                          <small>Only assign a verified account. Eligible violations are issued a challan automatically.</small>
+                        </div>
+                        <div className="field-block">
                           <label htmlFor="violation-intersection">Intersection</label>
                           <select
                             id="violation-intersection"
@@ -1296,6 +1355,11 @@ function App() {
                             <span>
                               <strong>{violation.violationType}</strong>
                               <small>{violation.intersection?.name ?? 'Intersection'} · {new Date(violation.occurredAt).toLocaleString()}</small>
+                              {violation.challan && (
+                                <small>
+                                  Challan {violation.challan.challanNumber} · ₹{violation.challan.amount.toLocaleString()} · {violation.challan.status}
+                                </small>
+                              )}
                             </span>
                           </li>
                         ))}
