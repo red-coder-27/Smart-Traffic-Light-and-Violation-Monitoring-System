@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { buildChallanQuery, type AppealFilterStatus, type ChallanFilters } from './challanQuery'
 
 export type ChallanItem = {
   id: string
@@ -23,6 +24,14 @@ export type ChallanItem = {
       name: string
       location: string
     } | null
+    appeal?: {
+      id: string
+      status: 'PENDING' | 'APPROVED' | 'REJECTED'
+      reason?: string
+      reviewNotes?: string | null
+      reviewedAt?: string | null
+      createdAt?: string
+    } | null
     trafficSignal?: {
       id: string
       status: string
@@ -37,9 +46,17 @@ export type ChallanItem = {
   citizen?: {
     id: string
     name: string
-    email: string
+    email?: string
     phone?: string | null
   }
+  transactions?: Array<{
+    status: string
+    id?: string
+    amount?: number
+    reference?: string
+    paymentMethod?: string
+    createdAt?: string
+  }>
 }
 
 export type ChallanPaymentProps = {
@@ -47,26 +64,46 @@ export type ChallanPaymentProps = {
   role?: string
   apiBaseUrl?: string
   onBackToProfile?: () => void
+  onViewAppeals?: () => void
   onLogout?: () => void
 }
 
 type SimulationOutcome = 'SUCCESS' | 'FAILURE'
 type PaymentMethod = 'SIMULATED_UPI' | 'SIMULATED_CARD' | 'SIMULATED_NETBANKING'
 
+const EMPTY_SUMMARY = { total: 0, pending: 0, paid: 0, cancelled: 0, appealed: 0, pendingAmount: 0 }
+
 export default function ChallanPayment({
   token,
   role = 'CITIZEN',
   apiBaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || 'http://localhost:5000',
   onBackToProfile,
+  onViewAppeals,
   onLogout,
 }: ChallanPaymentProps) {
   const [challans, setChallans] = useState<ChallanItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'ALL' | 'UNPAID' | 'PAID'>('ALL')
+  const [summary, setSummary] = useState(EMPTY_SUMMARY)
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalRecords: 0, totalPages: 0 })
+  const [filters, setFilters] = useState<ChallanFilters>({
+    search: '',
+    status: '',
+    violationType: '',
+    dateFrom: '',
+    dateTo: '',
+    appealStatus: '' as AppealFilterStatus,
+    sortOrder: 'desc' as 'asc' | 'desc',
+    page: 1,
+  })
+  const listRequest = useRef<AbortController | null>(null)
+  const detailRequest = useRef<AbortController | null>(null)
 
   // Payment modal/drawer state
   const [selectedChallan, setSelectedChallan] = useState<ChallanItem | null>(null)
+  const [detailChallan, setDetailChallan] = useState<ChallanItem | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('SIMULATED_UPI')
   const [simulationOutcome, setSimulationOutcome] = useState<SimulationOutcome>('SUCCESS')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -78,11 +115,16 @@ export default function ChallanPayment({
 
   const fetchChallans = useCallback(async () => {
     if (!token) return
+    listRequest.current?.abort()
+    const controller = new AbortController()
+    listRequest.current = controller
     setLoading(true)
     setError(null)
+    const query = buildChallanQuery(filters)
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/challans`, {
+      const response = await fetch(`${apiBaseUrl}/api/challans?${query}`, {
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -92,6 +134,8 @@ export default function ChallanPayment({
         success?: boolean
         message?: string
         challans?: ChallanItem[]
+        pagination?: { page: number; pageSize: number; totalRecords: number; totalPages: number }
+        summary?: typeof EMPTY_SUMMARY
       }
 
       if (!response.ok) {
@@ -99,16 +143,63 @@ export default function ChallanPayment({
       }
 
       setChallans(data.challans ?? [])
+      setPagination(data.pagination ?? { page: filters.page, pageSize: 10, totalRecords: 0, totalPages: 0 })
+      setSummary(data.summary ?? EMPTY_SUMMARY)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load challans.')
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        setError(err instanceof Error ? err.message : 'Unable to load challans.')
+      }
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
-  }, [apiBaseUrl, token])
+  }, [apiBaseUrl, filters, token])
 
   useEffect(() => {
-    void Promise.resolve().then(() => fetchChallans())
-  }, [fetchChallans])
+    const timeout = window.setTimeout(() => void fetchChallans(), filters.search ? 250 : 0)
+    return () => window.clearTimeout(timeout)
+  }, [fetchChallans, filters.search])
+
+  useEffect(() => () => {
+    listRequest.current?.abort()
+    detailRequest.current?.abort()
+  }, [])
+
+  const updateFilters = (updates: Partial<typeof filters>) => {
+    setFilters((current) => ({ ...current, ...updates, page: updates.page ?? 1 }))
+  }
+
+  const openDetails = async (challan: ChallanItem) => {
+    detailRequest.current?.abort()
+    const controller = new AbortController()
+    detailRequest.current = controller
+    setDetailChallan(challan)
+    setDetailsLoading(true)
+    setDetailsError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/challans/${encodeURIComponent(challan.id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      })
+      const data = await response.json() as { message?: string; challan?: ChallanItem }
+      if (!response.ok || !data.challan) {
+        throw new Error(data.message ?? 'Unable to load challan details.')
+      }
+      setDetailChallan(data.challan)
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        setDetailsError(err instanceof Error ? err.message : 'Unable to load challan details.')
+      }
+    } finally {
+      if (!controller.signal.aborted) setDetailsLoading(false)
+    }
+  }
+
+  const closeDetails = () => {
+    detailRequest.current?.abort()
+    setDetailChallan(null)
+    setDetailsError(null)
+  }
 
   const openPaymentModal = (challan: ChallanItem) => {
     setSelectedChallan(challan)
@@ -177,6 +268,7 @@ export default function ChallanPayment({
           text: data.message || 'Simulated payment was declined or failed.',
           reference: data.transaction?.reference,
         })
+        void fetchChallans()
         return
       }
 
@@ -194,9 +286,8 @@ export default function ChallanPayment({
           prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
         )
         setSelectedChallan((prev) => (prev ? { ...prev, ...updated } : null))
-      } else {
-        void fetchChallans()
       }
+      void fetchChallans()
     } catch (err) {
       setPaymentFeedback({
         kind: 'error',
@@ -206,18 +297,6 @@ export default function ChallanPayment({
       setIsProcessing(false)
     }
   }
-
-  // Calculated summaries
-  const totalChallans = challans.length
-  const unpaidChallans = challans.filter((c) => c.status === 'UNPAID')
-  const paidChallans = challans.filter((c) => c.status === 'PAID')
-  const totalUnpaidAmount = unpaidChallans.reduce((sum, c) => sum + c.amount, 0)
-
-  const displayedChallans = challans.filter((c) => {
-    if (filter === 'UNPAID') return c.status === 'UNPAID'
-    if (filter === 'PAID') return c.status === 'PAID'
-    return true
-  })
 
   return (
     <div className="challans-container" aria-labelledby="challans-title">
@@ -294,26 +373,116 @@ export default function ChallanPayment({
       )}
 
       {/* Summary statistics metrics */}
-      <div className="report-summary" style={{ marginBottom: 20 }}>
+      <div className="report-summary challan-summary-grid" style={{ marginBottom: 20 }}>
         <div className="report-metric">
           <span>TOTAL CHALLANS</span>
-          <strong id="stat-total-challans">{totalChallans}</strong>
+          <strong id="stat-total-challans">{summary.total}</strong>
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Issued citations</span>
         </div>
-        <div className="report-metric" style={{ borderColor: unpaidChallans.length > 0 ? '#f3b33d' : 'var(--line)' }}>
+        <div className="report-metric" style={{ borderColor: summary.pending > 0 ? '#f3b33d' : 'var(--line)' }}>
           <span>PENDING DUES</span>
-          <strong id="stat-pending-amount" style={{ color: unpaidChallans.length > 0 ? '#b95000' : 'var(--ink)' }}>
-            ₹{totalUnpaidAmount.toLocaleString()}
+          <strong id="stat-pending-amount" style={{ color: summary.pending > 0 ? '#b95000' : 'var(--ink)' }}>
+            ₹{summary.pendingAmount.toLocaleString()}
           </strong>
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-            {unpaidChallans.length} unpaid {unpaidChallans.length === 1 ? 'citation' : 'citations'}
+            {summary.pending} unpaid {summary.pending === 1 ? 'citation' : 'citations'}
           </span>
         </div>
-        <div className="report-metric" style={{ borderColor: paidChallans.length > 0 ? 'var(--green)' : 'var(--line)' }}>
+        <div className="report-metric" style={{ borderColor: summary.paid > 0 ? 'var(--green)' : 'var(--line)' }}>
           <span>SETTLED CHALLANS</span>
-          <strong id="stat-paid-count" style={{ color: 'var(--green)' }}>{paidChallans.length}</strong>
+          <strong id="stat-paid-count" style={{ color: 'var(--green)' }}>{summary.paid}</strong>
           <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Paid in full</span>
         </div>
+        <div className="report-metric">
+          <span>APPEALED</span>
+          <strong id="stat-appealed-count">{summary.appealed}</strong>
+          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>With an associated appeal</span>
+        </div>
+      </div>
+
+      <div className="challan-query-controls" aria-label="Search and filter challans">
+        <div className="field-block">
+          <label htmlFor="challan-search">Search challan number</label>
+          <input
+            id="challan-search"
+            type="search"
+            value={filters.search}
+            maxLength={100}
+            onChange={(event) => updateFilters({ search: event.target.value })}
+            placeholder="Enter a challan number"
+          />
+        </div>
+        <div className="field-block">
+          <label htmlFor="challan-violation-type">Violation type</label>
+          <input
+            id="challan-violation-type"
+            value={filters.violationType}
+            maxLength={80}
+            onChange={(event) => updateFilters({ violationType: event.target.value })}
+            placeholder="e.g. RED_LIGHT"
+          />
+        </div>
+        <div className="field-block">
+          <label htmlFor="challan-date-from">Issue date from</label>
+          <input
+            id="challan-date-from"
+            type="date"
+            value={filters.dateFrom}
+            max={filters.dateTo || undefined}
+            onChange={(event) => updateFilters({ dateFrom: event.target.value })}
+          />
+        </div>
+        <div className="field-block">
+          <label htmlFor="challan-date-to">Issue date to</label>
+          <input
+            id="challan-date-to"
+            type="date"
+            value={filters.dateTo}
+            min={filters.dateFrom || undefined}
+            onChange={(event) => updateFilters({ dateTo: event.target.value })}
+          />
+        </div>
+        <div className="field-block">
+          <label htmlFor="challan-appeal-status">Appeal status</label>
+          <select
+            id="challan-appeal-status"
+            value={filters.appealStatus}
+            onChange={(event) => updateFilters({ appealStatus: event.target.value as AppealFilterStatus })}
+          >
+            <option value="">All appeals</option>
+            <option value="NONE">No appeal</option>
+            <option value="PENDING">Pending</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </div>
+        <div className="field-block">
+          <label htmlFor="challan-sort-order">Issue date order</label>
+          <select
+            id="challan-sort-order"
+            value={filters.sortOrder}
+            onChange={(event) => updateFilters({ sortOrder: event.target.value as 'asc' | 'desc' })}
+          >
+            <option value="desc">Newest first</option>
+            <option value="asc">Oldest first</option>
+          </select>
+        </div>
+        <button
+          type="button"
+          className="secondary-button challan-clear-filters"
+          onClick={() => setFilters({
+            search: '',
+            status: '',
+            violationType: '',
+            dateFrom: '',
+            dateTo: '',
+            appealStatus: '',
+            sortOrder: 'desc',
+            page: 1,
+          })}
+        >
+          Clear filters
+        </button>
       </div>
 
       {/* Filter tabs */}
@@ -322,32 +491,41 @@ export default function ChallanPayment({
           <button
             type="button"
             role="tab"
-            aria-selected={filter === 'ALL'}
-            className={`challan-tab ${filter === 'ALL' ? 'active' : ''}`}
-            onClick={() => setFilter('ALL')}
+            aria-selected={!filters.status}
+            className={`challan-tab ${!filters.status ? 'active' : ''}`}
+            onClick={() => updateFilters({ status: '' })}
             id="tab-filter-all"
           >
-            All Challans ({totalChallans})
+            All Challans ({summary.total})
           </button>
           <button
             type="button"
             role="tab"
-            aria-selected={filter === 'UNPAID'}
-            className={`challan-tab ${filter === 'UNPAID' ? 'active' : ''}`}
-            onClick={() => setFilter('UNPAID')}
+            aria-selected={filters.status === 'UNPAID'}
+            className={`challan-tab ${filters.status === 'UNPAID' ? 'active' : ''}`}
+            onClick={() => updateFilters({ status: 'UNPAID' })}
             id="tab-filter-unpaid"
           >
-            Unpaid ({unpaidChallans.length})
+            Unpaid ({summary.pending})
           </button>
           <button
             type="button"
             role="tab"
-            aria-selected={filter === 'PAID'}
-            className={`challan-tab ${filter === 'PAID' ? 'active' : ''}`}
-            onClick={() => setFilter('PAID')}
+            aria-selected={filters.status === 'PAID'}
+            className={`challan-tab ${filters.status === 'PAID' ? 'active' : ''}`}
+            onClick={() => updateFilters({ status: 'PAID' })}
             id="tab-filter-paid"
           >
-            Paid ({paidChallans.length})
+            Paid ({summary.paid})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filters.status === 'CANCELLED'}
+            className={`challan-tab ${filters.status === 'CANCELLED' ? 'active' : ''}`}
+            onClick={() => updateFilters({ status: 'CANCELLED' })}
+          >
+            Cancelled ({summary.cancelled})
           </button>
         </div>
       </div>
@@ -357,17 +535,15 @@ export default function ChallanPayment({
         <div className="profile-status" style={{ padding: '32px 0', textAlign: 'center' }} role="status">
           Loading challans and payment status…
         </div>
-      ) : displayedChallans.length === 0 ? (
+      ) : challans.length === 0 ? (
         <div className="report-empty" style={{ margin: '16px 0', padding: 32 }}>
-          {filter === 'ALL'
-            ? 'No traffic challans found on record for this account.'
-            : filter === 'UNPAID'
-            ? 'No pending unpaid challans. You are fully compliant!'
-            : 'No paid challans recorded yet.'}
+          {filters.search || filters.status || filters.violationType || filters.dateFrom || filters.dateTo || filters.appealStatus
+            ? 'No challans match the selected search and filters.'
+            : 'No traffic challans found on record for this account.'}
         </div>
       ) : (
         <div className="challan-cards-list">
-          {displayedChallans.map((challan) => {
+          {challans.map((challan) => {
             const isPaid = challan.status === 'PAID'
             const isCancelled = challan.status === 'CANCELLED'
             const isUnpaid = challan.status === 'UNPAID'
@@ -404,6 +580,16 @@ export default function ChallanPayment({
                         ✕ CANCELLED
                       </span>
                     )}
+                    {isUnpaid && challan.transactions?.[0]?.status === 'FAILED' && (
+                      <span className="status-badge payment-status-failed">
+                        Latest payment attempt failed
+                      </span>
+                    )}
+                    {challan.violation?.appeal && (
+                      <span className={`status-badge appeal-status-${challan.violation.appeal.status.toLowerCase()}`}>
+                        Appeal {challan.violation.appeal.status.toLowerCase()}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -418,7 +604,7 @@ export default function ChallanPayment({
                       <span>{challan.violationId}</span>
                     </div>
                     <div className="violation-headline">
-                      <strong>{challan.violation?.violationType || 'TRAFFIC_VIOLATION'}</strong>
+                      <strong>{challan.violation?.violationType || 'Violation details unavailable'}</strong>
                       {challan.violation?.intersection && (
                         <span> at {challan.violation.intersection.name}</span>
                       )}
@@ -452,10 +638,7 @@ export default function ChallanPayment({
                     {challan.citizen && (
                       <div className="violation-detail-row">
                         <span className="detail-label">{role === 'CITIZEN' ? 'Issued to:' : 'Citizen:'}</span>
-                        <span>
-                          {challan.citizen.name} ({challan.citizen.email})
-                          {challan.citizen.phone ? ` · ${challan.citizen.phone}` : ''}
-                        </span>
+                        <span>{challan.citizen.name}</span>
                       </div>
                     )}
                   </div>
@@ -495,6 +678,15 @@ export default function ChallanPayment({
 
                 {/* Actions footer */}
                 <div className="challan-card-footer">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void openDetails(challan)}
+                    aria-label={`View details for ${challan.challanNumber}`}
+                    data-testid={`details-button-${challan.id}`}
+                  >
+                    View details
+                  </button>
                   {isUnpaid && (
                     <button
                       type="button"
@@ -519,6 +711,144 @@ export default function ChallanPayment({
               </article>
             )
           })}
+        </div>
+      )}
+
+      <div className="challan-pagination" aria-label="Challan pages">
+        <span>
+          {pagination.totalRecords === 0
+            ? '0 challans'
+            : `${(pagination.page - 1) * pagination.pageSize + 1}-${Math.min(pagination.page * pagination.pageSize, pagination.totalRecords)} of ${pagination.totalRecords} challans`}
+        </span>
+        <div>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={loading || pagination.page <= 1}
+            onClick={() => updateFilters({ page: Math.max(1, filters.page - 1) })}
+          >
+            Previous
+          </button>
+          <span aria-live="polite">Page {pagination.page} of {Math.max(1, pagination.totalPages)}</span>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={loading || pagination.page >= pagination.totalPages}
+            onClick={() => updateFilters({ page: filters.page + 1 })}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
+      {detailChallan && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="challan-details-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeDetails()
+          }}
+        >
+          <div className="modal-dialog challan-details-dialog">
+            <div className="modal-header">
+              <div>
+                <span className="form-kicker">DIGITAL CHALLAN</span>
+                <h3 id="challan-details-title" style={{ margin: '4px 0 0', fontFamily: 'var(--display)' }}>
+                  {detailChallan.challanNumber}
+                </h3>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={closeDetails} aria-label="Close details">
+                ✕
+              </button>
+            </div>
+            <div className="modal-body challan-details-body">
+              {detailsLoading && <p className="profile-status" role="status">Loading challan details…</p>}
+              {detailsError && (
+                <div className="report-error" role="alert">
+                  <span>{detailsError}</span>
+                  <button type="button" className="secondary-button" onClick={() => void openDetails(detailChallan)}>
+                    Retry
+                  </button>
+                </div>
+              )}
+              {!detailsLoading && !detailsError && (
+                <>
+                  <dl className="challan-details-grid">
+                    <div><dt>Database ID</dt><dd>{detailChallan.id}</dd></div>
+                    <div><dt>Violation ID</dt><dd>{detailChallan.violationId}</dd></div>
+                    <div><dt>Violation type</dt><dd>{detailChallan.violation?.violationType || 'Not available'}</dd></div>
+                    <div><dt>Violation date</dt><dd>{detailChallan.violation?.occurredAt ? new Date(detailChallan.violation.occurredAt).toLocaleString() : 'Not available'}</dd></div>
+                    <div><dt>Intersection</dt><dd>{detailChallan.violation?.intersection?.name || 'Not available'}</dd></div>
+                    <div><dt>Location</dt><dd>{detailChallan.violation?.intersection?.location || 'Not available'}</dd></div>
+                    <div><dt>Fine amount</dt><dd>₹{detailChallan.amount.toLocaleString()}</dd></div>
+                    <div><dt>Issued</dt><dd>{new Date(detailChallan.createdAt).toLocaleString()}</dd></div>
+                    <div><dt>Payment status</dt><dd>{detailChallan.status}</dd></div>
+                    {detailChallan.citizen?.name && <div><dt>Citizen</dt><dd>{detailChallan.citizen.name}</dd></div>}
+                    {detailChallan.paymentReference && <div><dt>Payment reference</dt><dd>{detailChallan.paymentReference}</dd></div>}
+                    {detailChallan.paidAt && <div><dt>Paid at</dt><dd>{new Date(detailChallan.paidAt).toLocaleString()}</dd></div>}
+                    {detailChallan.paymentMethod && <div><dt>Payment method</dt><dd>{detailChallan.paymentMethod.replace(/_/g, ' ')}</dd></div>}
+                    {detailChallan.notes && <div><dt>Notes</dt><dd>{detailChallan.notes}</dd></div>}
+                  </dl>
+
+                  <section className="challan-detail-section" aria-labelledby="challan-appeal-heading">
+                    <h4 id="challan-appeal-heading">Appeal</h4>
+                    {detailChallan.violation?.appeal ? (
+                      <div className="challan-appeal-detail">
+                        <span className={`status-badge appeal-status-${detailChallan.violation.appeal.status.toLowerCase()}`}>
+                          {detailChallan.violation.appeal.status}
+                        </span>
+                        {detailChallan.violation.appeal.reason && <p>{detailChallan.violation.appeal.reason}</p>}
+                        {detailChallan.violation.appeal.reviewNotes && (
+                          <p><strong>Decision notes:</strong> {detailChallan.violation.appeal.reviewNotes}</p>
+                        )}
+                        {detailChallan.violation.appeal.reviewedAt && (
+                          <p><strong>Reviewed:</strong> {new Date(detailChallan.violation.appeal.reviewedAt).toLocaleString()}</p>
+                        )}
+                      </div>
+                    ) : <p>No appeal has been submitted for this violation.</p>}
+                    {onViewAppeals && (
+                      <button type="button" className="secondary-button" onClick={() => { closeDetails(); onViewAppeals() }}>
+                        Open appeals
+                      </button>
+                    )}
+                  </section>
+
+                  {detailChallan.transactions && detailChallan.transactions.length > 0 && (
+                    <section className="challan-detail-section" aria-labelledby="challan-payments-heading">
+                      <h4 id="challan-payments-heading">Payment attempts</h4>
+                      <ul className="challan-transaction-list">
+                        {detailChallan.transactions.map((transaction, index) => (
+                          <li key={transaction.id ?? `${transaction.status}-${index}`}>
+                            <span>
+                              {transaction.status}
+                              {transaction.amount !== undefined && ` · ₹${transaction.amount.toLocaleString()}`}
+                            </span>
+                            <span>
+                              {[
+                                transaction.reference,
+                                transaction.createdAt ? new Date(transaction.createdAt).toLocaleString() : undefined,
+                              ].filter(Boolean).join(' · ')}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  {detailChallan.status === 'UNPAID' && (
+                    <button
+                      type="button"
+                      className="pay-action-btn"
+                      onClick={() => { closeDetails(); openPaymentModal(detailChallan) }}
+                    >
+                      Pay Fine (Simulation) →
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

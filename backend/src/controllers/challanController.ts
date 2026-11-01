@@ -1,9 +1,23 @@
 import type { Request, Response } from "express";
+import { Prisma } from "../generated/prisma/client.js";
 import prisma from "../lib/prisma.js";
 import type { AuthenticatedRequest } from "../middleware/authMiddleware.js";
 import { generateChallanNumber, getFineAmount } from "../services/challanRules.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ALLOWED_QUERY_PARAMETERS = new Set([
+    "search",
+    "status",
+    "violationType",
+    "dateFrom",
+    "dateTo",
+    "appealStatus",
+    "sortOrder",
+    "page",
+    "pageSize",
+]);
+const MAX_PAGE_SIZE = 100;
+const MAX_OFFSET = 100_000;
 const ALLOWED_PAYMENT_METHODS = new Set([
     "SIMULATED_UPI",
     "SIMULATED_CARD",
@@ -30,23 +44,58 @@ export type ChallanRecord = {
         description: string | null;
         intersection?: { id: string; name: string; location: string } | null;
         trafficSignal?: { id: string; status: string } | null;
+        appeal?: {
+            id: string;
+            status: "PENDING" | "APPROVED" | "REJECTED";
+            reason?: string;
+            reviewNotes?: string | null;
+            reviewedAt?: Date | null;
+            createdAt?: Date;
+        } | null;
         evidence?: Array<{ id: string; originalName: string; mimeType: string; createdAt: Date }>;
     } | null;
     citizen?: {
         id: string;
         name: string;
-        email: string;
-        phone: string | null;
+        email?: string;
+        phone?: string | null;
     } | null;
     transactions?: Array<{
-        id: string;
-        amount: number;
         status: string;
-        reference: string;
-        paymentMethod: string;
-        failureReason: string | null;
-        createdAt: Date;
+        id?: string;
+        amount?: number;
+        reference?: string;
+        paymentMethod?: string;
+        failureReason?: string | null;
+        createdAt?: Date;
     }>;
+};
+
+export type ChallanListFilters = {
+    search?: string;
+    status?: "UNPAID" | "PAID" | "CANCELLED";
+    violationType?: string;
+    dateFrom?: Date;
+    dateToExclusive?: Date;
+    appealStatus?: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+    sortOrder: "asc" | "desc";
+    page: number;
+    pageSize: number;
+};
+
+export type ChallanSummary = {
+    total: number;
+    pending: number;
+    paid: number;
+    cancelled: number;
+    appealed: number;
+    pendingAmount: number;
+};
+
+export type ChallanListResult = {
+    challans: ChallanRecord[];
+    totalRecords: number;
+    summary: ChallanSummary;
 };
 
 export type ViolationLookup = {
@@ -56,7 +105,7 @@ export type ViolationLookup = {
 };
 
 export type ChallanServices = {
-    listChallans(citizenId?: string): Promise<ChallanRecord[]>;
+    listChallans(citizenId: string | undefined, filters: ChallanListFilters): Promise<ChallanListResult>;
     getChallan(idOrNumber: string, citizenId?: string): Promise<ChallanRecord | null>;
     getViolation(id: string): Promise<ViolationLookup | null>;
     challanExistsForViolation(violationId: string): Promise<boolean>;
@@ -97,6 +146,96 @@ function generatePaymentReference(): string {
     return `SIMPAY-${timestamp}-${randomHex}`;
 }
 
+function getQueryString(query: Record<string, unknown>, key: string): string | undefined | null {
+    const value = query[key];
+    if (value === undefined) return undefined;
+    return typeof value === "string" ? value.trim() : null;
+}
+
+function parseIntegerQuery(
+    query: Record<string, unknown>,
+    key: string,
+    defaultValue: number,
+): number | null {
+    const value = getQueryString(query, key);
+    if (value === undefined) return defaultValue;
+    if (value === null || !/^\d+$/.test(value)) return null;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function parseDateQuery(value: string | undefined | null): Date | undefined | null {
+    if (value === undefined) return undefined;
+    if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date;
+}
+
+function parseChallanListFilters(query: Record<string, unknown>):
+    { filters: ChallanListFilters } | { error: string } {
+    if (Object.keys(query).some((key) => !ALLOWED_QUERY_PARAMETERS.has(key))) {
+        return { error: "Unsupported challan list query parameter" };
+    }
+
+    const search = getQueryString(query, "search");
+    const rawStatus = getQueryString(query, "status");
+    const violationType = getQueryString(query, "violationType");
+    const rawAppealStatus = getQueryString(query, "appealStatus");
+    const rawSortOrder = getQueryString(query, "sortOrder");
+    const dateFrom = parseDateQuery(getQueryString(query, "dateFrom"));
+    const dateTo = parseDateQuery(getQueryString(query, "dateTo"));
+    const page = parseIntegerQuery(query, "page", 1);
+    const pageSize = parseIntegerQuery(query, "pageSize", 10);
+
+    if (search === null || (search !== undefined && search.length > 100)) {
+        return { error: "Search must be a string up to 100 characters" };
+    }
+    if (
+        rawStatus === null ||
+        (rawStatus !== undefined && !["UNPAID", "PAID", "CANCELLED"].includes(rawStatus.toUpperCase()))
+    ) {
+        return { error: "status must be UNPAID, PAID, or CANCELLED" };
+    }
+    if (violationType === null || (violationType !== undefined && (!violationType || violationType.length > 80))) {
+        return { error: "violationType must be a non-empty string up to 80 characters" };
+    }
+    if (
+        rawAppealStatus === null ||
+        (rawAppealStatus !== undefined &&
+            !["NONE", "PENDING", "APPROVED", "REJECTED"].includes(rawAppealStatus.toUpperCase()))
+    ) {
+        return { error: "appealStatus must be NONE, PENDING, APPROVED, or REJECTED" };
+    }
+    if (rawSortOrder === null || (rawSortOrder !== undefined && !["asc", "desc"].includes(rawSortOrder.toLowerCase()))) {
+        return { error: "sortOrder must be asc or desc" };
+    }
+    if (dateFrom === null || dateTo === null || (dateFrom && dateTo && dateFrom > dateTo)) {
+        return { error: "dateFrom and dateTo must be valid dates with dateFrom no later than dateTo" };
+    }
+    if (page === null || page < 1 || pageSize === null || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+        return { error: `page must be positive and pageSize must be between 1 and ${MAX_PAGE_SIZE}` };
+    }
+    if ((page - 1) * pageSize > MAX_OFFSET) {
+        return { error: "Requested page is too far into the result set" };
+    }
+
+    return {
+        filters: {
+            ...(search ? { search } : {}),
+            ...(rawStatus ? { status: rawStatus.toUpperCase() as ChallanListFilters["status"] } : {}),
+            ...(violationType ? { violationType } : {}),
+            ...(dateFrom ? { dateFrom } : {}),
+            ...(dateTo ? { dateToExclusive: new Date(dateTo.getTime() + 24 * 60 * 60 * 1000) } : {}),
+            ...(rawAppealStatus
+                ? { appealStatus: rawAppealStatus.toUpperCase() as ChallanListFilters["appealStatus"] }
+                : {}),
+            sortOrder: (rawSortOrder?.toLowerCase() as "asc" | "desc" | undefined) ?? "desc",
+            page,
+            pageSize,
+        },
+    };
+}
+
 export function createChallanHandlers(services: ChallanServices) {
     return {
         list: async (req: Request, res: Response): Promise<void> => {
@@ -106,10 +245,26 @@ export function createChallanHandlers(services: ChallanServices) {
                 return;
             }
 
+            const parsedQuery = parseChallanListFilters(req.query as Record<string, unknown>);
+            if ("error" in parsedQuery) {
+                res.status(400).json({ success: false, message: parsedQuery.error });
+                return;
+            }
+
             try {
                 const citizenId = user.role === "CITIZEN" ? user.id : undefined;
-                const challans = await services.listChallans(citizenId);
-                res.json({ success: true, challans });
+                const result = await services.listChallans(citizenId, parsedQuery.filters);
+                res.json({
+                    success: true,
+                    challans: result.challans,
+                    pagination: {
+                        page: parsedQuery.filters.page,
+                        pageSize: parsedQuery.filters.pageSize,
+                        totalRecords: result.totalRecords,
+                        totalPages: Math.ceil(result.totalRecords / parsedQuery.filters.pageSize),
+                    },
+                    summary: result.summary,
+                });
             } catch (error) {
                 console.error("Listing challans failed:", error);
                 res.status(500).json({ success: false, message: "Internal server error" });
@@ -123,15 +278,20 @@ export function createChallanHandlers(services: ChallanServices) {
                 return;
             }
 
-            const id = req.params.id;
-            if (!id || typeof id !== "string") {
+            const id = req.params.id ?? req.params.challanNumber;
+            if (
+                typeof id !== "string" ||
+                id.trim().length === 0 ||
+                id.length > 128 ||
+                /[\u0000-\u001f]/.test(id)
+            ) {
                 res.status(400).json({ success: false, message: "Invalid challan identifier" });
                 return;
             }
 
             try {
                 const citizenId = user.role === "CITIZEN" ? user.id : undefined;
-                const challan = await services.getChallan(id, citizenId);
+                const challan = await services.getChallan(id.trim(), citizenId);
                 if (!challan) {
                     res.status(404).json({ success: false, message: "Challan not found" });
                     return;
@@ -374,42 +534,92 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 const defaultServices: ChallanServices = {
-    listChallans: async (citizenId) => {
-        // Find existing challans
-        const challans: ChallanRecord[] = await prisma.challan.findMany({
-            where: citizenId ? { citizenId } : undefined,
-            orderBy: { createdAt: "desc" },
-            include: {
-                violation: {
-                    select: {
-                        id: true,
-                        occurredAt: true,
-                        violationType: true,
-                        description: true,
-                        intersection: { select: { id: true, name: true, location: true } },
-                        trafficSignal: { select: { id: true, status: true } },
-                        evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
+    listChallans: async (citizenId, filters) => {
+        const scope: Prisma.ChallanWhereInput = citizenId ? { citizenId } : {};
+        const violationFilter: Prisma.ViolationWhereInput = {
+            ...(filters.violationType
+                ? { violationType: { equals: filters.violationType, mode: "insensitive" } }
+                : {}),
+            ...(filters.appealStatus
+                ? {
+                    appeal: filters.appealStatus === "NONE"
+                        ? { is: null }
+                        : { is: { status: filters.appealStatus } },
+                }
+                : {}),
+        };
+        const where: Prisma.ChallanWhereInput = {
+            ...scope,
+            ...(filters.search
+                ? { challanNumber: { contains: filters.search, mode: "insensitive" } }
+                : {}),
+            ...(filters.status ? { status: filters.status } : {}),
+            ...(filters.dateFrom || filters.dateToExclusive
+                ? {
+                    createdAt: {
+                        ...(filters.dateFrom ? { gte: filters.dateFrom } : {}),
+                        ...(filters.dateToExclusive ? { lt: filters.dateToExclusive } : {}),
                     },
-                },
-                citizen: {
-                    select: { id: true, name: true, email: true, phone: true },
-                },
-                transactions: {
-                    select: {
-                        id: true,
-                        amount: true,
-                        status: true,
-                        reference: true,
-                        paymentMethod: true,
-                        failureReason: true,
-                        createdAt: true,
-                    },
-                    orderBy: { createdAt: "desc" },
-                },
-            },
-        });
+                }
+                : {}),
+            ...(Object.keys(violationFilter).length ? { violation: { is: violationFilter } } : {}),
+        };
 
-        return challans as ChallanRecord[];
+        const [challans, totalRecords, groupedStatuses, pendingAmount, appealed] = await Promise.all([
+            prisma.challan.findMany({
+                where,
+                orderBy: { createdAt: filters.sortOrder },
+                skip: (filters.page - 1) * filters.pageSize,
+                take: filters.pageSize,
+                include: {
+                    violation: {
+                        select: {
+                            id: true,
+                            occurredAt: true,
+                            violationType: true,
+                            description: true,
+                            intersection: { select: { id: true, name: true, location: true } },
+                            appeal: {
+                                select: { id: true, status: true },
+                            },
+                        },
+                    },
+                    citizen: { select: { id: true, name: true } },
+                    transactions: {
+                        select: { status: true },
+                        orderBy: { createdAt: "desc" },
+                        take: 1,
+                    },
+                },
+            }) as Promise<ChallanRecord[]>,
+            prisma.challan.count({ where }),
+            prisma.challan.groupBy({
+                by: ["status"],
+                where: scope,
+                _count: { _all: true },
+            }),
+            prisma.challan.aggregate({
+                where: { ...scope, status: "UNPAID" },
+                _sum: { amount: true },
+            }),
+            prisma.challan.count({
+                where: { ...scope, violation: { is: { appeal: { isNot: null } } } },
+            }),
+        ]);
+        const counts = new Map(groupedStatuses.map((group) => [group.status, group._count._all]));
+
+        return {
+            challans,
+            totalRecords,
+            summary: {
+                total: groupedStatuses.reduce((total, group) => total + group._count._all, 0),
+                pending: counts.get("UNPAID") ?? 0,
+                paid: counts.get("PAID") ?? 0,
+                cancelled: counts.get("CANCELLED") ?? 0,
+                appealed,
+                pendingAmount: pendingAmount._sum.amount ?? 0,
+            },
+        };
     },
 
     getChallan: async (idOrNumber, citizenId) => {
@@ -426,13 +636,19 @@ const defaultServices: ChallanServices = {
                         violationType: true,
                         description: true,
                         intersection: { select: { id: true, name: true, location: true } },
-                        trafficSignal: { select: { id: true, status: true } },
-                        evidence: { select: { id: true, originalName: true, mimeType: true, createdAt: true } },
+                        appeal: {
+                            select: {
+                                id: true,
+                                status: true,
+                                reason: true,
+                                reviewNotes: true,
+                                reviewedAt: true,
+                                createdAt: true,
+                            },
+                        },
                     },
                 },
-                citizen: {
-                    select: { id: true, name: true, email: true, phone: true },
-                },
+                citizen: { select: { id: true, name: true } },
                 transactions: {
                     select: {
                         id: true,
@@ -440,10 +656,10 @@ const defaultServices: ChallanServices = {
                         status: true,
                         reference: true,
                         paymentMethod: true,
-                        failureReason: true,
                         createdAt: true,
                     },
                     orderBy: { createdAt: "desc" },
+                    take: 10,
                 },
             },
         });

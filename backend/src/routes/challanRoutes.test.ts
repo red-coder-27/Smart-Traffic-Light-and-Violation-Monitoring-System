@@ -40,6 +40,7 @@ test("the challan route stack rejects unauthenticated requests with 401", async 
     for (const [method, path] of [
         ["GET", "/api/challans"],
         ["POST", "/api/challans"],
+        ["GET", "/api/challans/number/CHAL-20261024-ABC1"],
         ["GET", "/api/challans/550e8400-e29b-41d4-a716-446655440000"],
         ["POST", "/api/challans/550e8400-e29b-41d4-a716-446655440000/pay"],
     ] as const) {
@@ -77,4 +78,21 @@ test("citizen and admin can access challan list and payment endpoints", async ()
     const adminList = await request("/api/challans", "GET", tokenFor("admin-id", "ADMIN"));
     assert.notEqual(adminList.status, 401);
     assert.notEqual(adminList.status, 403);
+
+    const policeList = await request("/api/challans", "GET", tokenFor("police-id", "TRAFFIC_POLICE"));
+    assert.notEqual(policeList.status, 401);
+    assert.notEqual(policeList.status, 403);
+});
+
+test("the challan list rejects unsupported filters before querying the database", async () => {
+    const response = await request(
+        "/api/challans?page=0",
+        "GET",
+        tokenFor("citizen-id", "CITIZEN"),
+    );
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.body, {
+        success: false,
+        message: "page must be positive and pageSize must be between 1 and 100",
+    });
 });

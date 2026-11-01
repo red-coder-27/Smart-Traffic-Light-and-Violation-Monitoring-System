@@ -244,6 +244,8 @@ model Challan {
 
   @@index([citizenId])
   @@index([status])
+  @@index([createdAt])
+  @@index([citizenId, createdAt])
   @@map("challans")
 }
 

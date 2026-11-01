@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Request, Response } from "express";
 import {
     createChallanHandlers,
+    type ChallanListFilters,
     type ChallanRecord,
     type ChallanServices,
 } from "./challanController.js";
@@ -29,10 +30,12 @@ function request(
     params: Record<string, string> = {},
     authenticatedUser?: { id: string; role: string },
     headers: Record<string, string> = {},
+    query: Record<string, unknown> = {},
 ): Request {
     return {
         body,
         params,
+        query,
         authenticatedUser,
         header: (name: string) => headers[name] || headers[name.toLowerCase()],
     } as unknown as Request;
@@ -82,7 +85,21 @@ const mockPaidChallan: ChallanRecord = {
 
 function createMockServices(overrides: Partial<ChallanServices> = {}): ChallanServices {
     return {
-        listChallans: async (cId) => (cId ? [mockUnpaidChallan] : [mockUnpaidChallan, mockPaidChallan]),
+        listChallans: async (cId) => {
+            const challans = cId ? [mockUnpaidChallan] : [mockUnpaidChallan, mockPaidChallan];
+            return {
+                challans,
+                totalRecords: challans.length,
+                summary: {
+                    total: 2,
+                    pending: 1,
+                    paid: 1,
+                    cancelled: 0,
+                    appealed: 0,
+                    pendingAmount: 1000,
+                },
+            };
+        },
         getChallan: async (id) => (id === challanId || id === mockUnpaidChallan.challanNumber ? mockUnpaidChallan : null),
         getViolation: async (vId) => (vId === violationId ? { id: violationId, violatingUserId: citizenId, violationType: "RED_LIGHT" } : null),
         challanExistsForViolation: async () => false,
@@ -353,7 +370,11 @@ test("citizen listChallans scopes results to authenticated citizen", async () =>
     const services = createMockServices({
         listChallans: async (cId) => {
             queriedCitizenId = cId;
-            return [mockUnpaidChallan];
+            return {
+                challans: [mockUnpaidChallan],
+                totalRecords: 1,
+                summary: { total: 1, pending: 1, paid: 0, cancelled: 0, appealed: 0, pendingAmount: 1000 },
+            };
         },
     });
 
@@ -367,6 +388,15 @@ test("citizen listChallans scopes results to authenticated citizen", async () =>
 
     assert.equal(result.statusCode, 200);
     assert.equal(queriedCitizenId, citizenId);
+    assert.deepEqual(result.body?.pagination, { page: 1, pageSize: 10, totalRecords: 1, totalPages: 1 });
+    assert.deepEqual(result.body?.summary, {
+        total: 1,
+        pending: 1,
+        paid: 0,
+        cancelled: 0,
+        appealed: 0,
+        pendingAmount: 1000,
+    });
 });
 
 test("admin listChallans returns all challans without citizen scope", async () => {
@@ -374,7 +404,11 @@ test("admin listChallans returns all challans without citizen scope", async () =
     const services = createMockServices({
         listChallans: async (cId) => {
             queriedCitizenId = cId;
-            return [mockUnpaidChallan, mockPaidChallan];
+            return {
+                challans: [mockUnpaidChallan, mockPaidChallan],
+                totalRecords: 2,
+                summary: { total: 2, pending: 1, paid: 1, cancelled: 0, appealed: 0, pendingAmount: 1000 },
+            };
         },
     });
 
@@ -390,6 +424,147 @@ test("admin listChallans returns all challans without citizen scope", async () =
     assert.equal(queriedCitizenId, undefined);
     const list = result.body?.challans as unknown[];
     assert.equal(list.length, 2);
+});
+
+test("challan list validates and forwards search, status, violation, date, appeal, sort and pagination filters", async () => {
+    let capturedCitizenId: string | undefined;
+    let capturedFilters: ChallanListFilters | undefined;
+    const services = createMockServices({
+        listChallans: async (cId, filters) => {
+            capturedCitizenId = cId;
+            capturedFilters = filters;
+            return {
+                challans: [mockUnpaidChallan],
+                totalRecords: 23,
+                summary: { total: 30, pending: 8, paid: 20, cancelled: 2, appealed: 4, pendingAmount: 8000 },
+            };
+        },
+    });
+    const handlers = createChallanHandlers(services);
+    const { response, result } = makeResponse();
+
+    await handlers.list(
+        request({}, {}, { id: citizenId, role: "CITIZEN" }, {}, {
+            search: "CHAL-20261024",
+            status: "unpaid",
+            violationType: "RED_LIGHT",
+            dateFrom: "2026-10-01",
+            dateTo: "2026-10-31",
+            appealStatus: "pending",
+            sortOrder: "asc",
+            page: "3",
+            pageSize: "5",
+        }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(capturedCitizenId, citizenId);
+    assert.equal(capturedFilters?.search, "CHAL-20261024");
+    assert.equal(capturedFilters?.status, "UNPAID");
+    assert.equal(capturedFilters?.violationType, "RED_LIGHT");
+    assert.equal(capturedFilters?.appealStatus, "PENDING");
+    assert.equal(capturedFilters?.sortOrder, "asc");
+    assert.equal(capturedFilters?.page, 3);
+    assert.equal(capturedFilters?.pageSize, 5);
+    assert.deepEqual(result.body?.pagination, { page: 3, pageSize: 5, totalRecords: 23, totalPages: 5 });
+    assert.equal((capturedFilters?.dateFrom as Date).toISOString(), "2026-10-01T00:00:00.000Z");
+    assert.equal((capturedFilters?.dateToExclusive as Date).toISOString(), "2026-11-01T00:00:00.000Z");
+});
+
+test("invalid challan list pagination and filter values return 400 without querying services", async () => {
+    let listCalled = false;
+    const handlers = createChallanHandlers(createMockServices({
+        listChallans: async () => {
+            listCalled = true;
+            return {
+                challans: [],
+                totalRecords: 0,
+                summary: { total: 0, pending: 0, paid: 0, cancelled: 0, appealed: 0, pendingAmount: 0 },
+            };
+        },
+    }));
+
+    for (const query of [
+        { page: "0" },
+        { pageSize: "101" },
+        { page: "1.5" },
+        { status: "PENDING" },
+        { dateFrom: "2026-02-30" },
+        { appealStatus: "IN_REVIEW" },
+        { unexpected: "value" },
+    ]) {
+        const { response, result } = makeResponse();
+        await handlers.list(request({}, {}, { id: citizenId, role: "CITIZEN" }, {}, query), response);
+        assert.equal(result.statusCode, 400);
+        assert.equal(result.body?.success, false);
+    }
+
+    assert.equal(listCalled, false);
+});
+
+test("challan details are scoped to the authenticated citizen", async () => {
+    let queriedCitizenId: string | undefined;
+    const handlers = createChallanHandlers(createMockServices({
+        getChallan: async (_identifier, cId) => {
+            queriedCitizenId = cId;
+            return cId === citizenId ? mockUnpaidChallan : null;
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.getOne(
+        request({}, { id: challanId }, { id: otherCitizenId, role: "CITIZEN" }),
+        response,
+    );
+
+    assert.equal(queriedCitizenId, otherCitizenId);
+    assert.equal(result.statusCode, 404);
+    assert.equal(result.body?.message, "Challan not found");
+});
+
+test("missing challan details return 404", async () => {
+    const handlers = createChallanHandlers(createMockServices({ getChallan: async () => null }));
+    const { response, result } = makeResponse();
+
+    await handlers.getOne(
+        request({}, { id: challanId }, { id: citizenId, role: "CITIZEN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 404);
+    assert.deepEqual(result.body, { success: false, message: "Challan not found" });
+});
+
+test("challan details return 500 safely when the database service fails", async () => {
+    const handlers = createChallanHandlers(createMockServices({
+        getChallan: async () => {
+            throw new Error("database details");
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.getOne(
+        request({}, { id: challanId }, { id: citizenId, role: "CITIZEN" }),
+        response,
+    );
+
+    assert.equal(result.statusCode, 500);
+    assert.deepEqual(result.body, { success: false, message: "Internal server error" });
+});
+
+test("challan list returns 500 safely when the database service fails", async () => {
+    const handlers = createChallanHandlers(createMockServices({
+        listChallans: async () => {
+            throw new Error("database list");
+        },
+    }));
+    const { response, result } = makeResponse();
+
+    await handlers.list(request({}, {}, { id: citizenId, role: "CITIZEN" }), response);
+
+    assert.equal(result.statusCode, 500);
+    assert.deepEqual(result.body, { success: false, message: "Internal server error" });
 });
 
 test("admin can generate a challan for a violation", async () => {
@@ -505,7 +680,7 @@ test("challan details can be retrieved using the unique challan number", async (
     const { response, result } = makeResponse();
 
     await handlers.getOne(
-        request({}, { id: mockUnpaidChallan.challanNumber }, { id: citizenId, role: "CITIZEN" }),
+        request({}, { challanNumber: mockUnpaidChallan.challanNumber }, { id: citizenId, role: "CITIZEN" }),
         response,
     );
 

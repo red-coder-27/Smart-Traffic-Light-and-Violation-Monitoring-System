@@ -1614,3 +1614,158 @@ textarea.input-error {
   color: #8b1a1a;
   border: 1px solid #c0392b;
 }
+
+.challan-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.challan-query-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.challan-query-controls .field-block {
+  margin: 0;
+}
+
+.challan-clear-filters {
+  min-height: 40px;
+}
+
+.challan-card-footer {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.challan-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.challan-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appeal-status-pending {
+  background: #fff8e6;
+  color: #7a5000;
+  border: 1px solid #f3b33d;
+}
+
+.appeal-status-approved {
+  background: #edfaf2;
+  color: #1a5c36;
+  border: 1px solid var(--green);
+}
+
+.appeal-status-rejected {
+  background: #fdf2f2;
+  color: #8b1a1a;
+  border: 1px solid #c0392b;
+}
+
+.payment-status-failed {
+  background: #fdf2f2;
+  color: #8b1a1a;
+  border: 1px solid #c0392b;
+}
+
+.challan-details-dialog {
+  max-width: 760px;
+  max-height: min(90vh, 900px);
+  overflow: auto;
+}
+
+.challan-details-body {
+  max-height: calc(90vh - 100px);
+  overflow: auto;
+}
+
+.challan-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.challan-details-grid > div {
+  min-width: 0;
+}
+
+.challan-details-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.challan-details-grid dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.challan-detail-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.challan-detail-section h4,
+.challan-detail-section p {
+  margin: 0;
+}
+
+.challan-transaction-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.challan-transaction-list li {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .challan-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .challan-query-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .challan-summary-grid,
+  .challan-query-controls,
+  .challan-details-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .challan-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .challan-pagination > div {
+    flex-wrap: wrap;
+  }
+}
