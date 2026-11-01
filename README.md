@@ -91,15 +91,30 @@ challans, and only Administrators or Traffic Police can generate them.
 | `GET` | `/api/violations/citizens` | Active citizen accounts available to operators |
 | `GET` | `/api/challans` | List challans (citizens see only their own) |
 | `POST` | `/api/challans` | Generate a challan for an assigned eligible violation |
-| `GET` | `/api/challans/:idOrNumber` | Retrieve by database ID or challan number |
+| `GET` | `/api/challans/:id` | Retrieve by database ID |
+| `GET` | `/api/challans/number/:challanNumber` | Retrieve by challan number |
 | `POST` | `/api/challans/:id/pay` | Simulate payment of the persisted fine amount |
 
-The challan list is also the existing citizen payment view. Payment continues
-to use the challan ID and server-side amount and does not participate in
-challan generation. This schema already provides the challan and payment
-tables, unique constraints, owner relation, and indexes, so this workflow
-requires no database migration. The current schema has no registered-vehicle
-model; challan details therefore include no vehicle information.
+`GET /api/challans` supports server-side `search` (challan number), `status`
+(`UNPAID`, `PAID`, or `CANCELLED`), `violationType`, `dateFrom`/`dateTo`
+(inclusive issue-date range, `YYYY-MM-DD`), `appealStatus`
+(`NONE`, `PENDING`, `APPROVED`, or `REJECTED`), `sortOrder` (`asc` or `desc`),
+`page`, and `pageSize` (1–100). Pagination defaults to page 1 with 10 records.
+The response includes the filtered records and `pagination` metadata plus
+account-scoped `summary` counts and pending amount. Citizens' account scope is
+derived from the bearer token; client-supplied user IDs are not accepted.
+Challan details include the associated appeal decision and up to 10 latest
+payment transactions. The citizen challan dashboard uses this API for search,
+filters, issue-date sorting, pagination, status totals, and its details view.
+Payment continues to use the challan ID and server-side amount and does not
+participate in challan generation. The existing schema provides the challan
+and payment models, unique constraints, owner relation, and status indexes.
+The additive migration
+`backend/prisma/migrations/20261101000000_add_challan_browse_indexes/migration.sql`
+adds issue-date indexes for global operator sorting and citizen-scoped sorting;
+it does not alter or backfill records. Apply it through the normal deployment
+process. The current schema has no registered-vehicle model; challan details
+therefore include no vehicle information.
 
 ### Violation appeal submission
 

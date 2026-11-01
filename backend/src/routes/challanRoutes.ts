@@ -12,6 +12,7 @@ const challanRoutes = Router();
 
 challanRoutes.get("/", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), listChallans);
 challanRoutes.post("/", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE"), createChallan);
+challanRoutes.get("/number/:challanNumber", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), getChallan);
 challanRoutes.get("/:id", authMiddleware, requireRole("ADMIN", "TRAFFIC_POLICE", "CITIZEN"), getChallan);
 challanRoutes.post("/:id/pay", authMiddleware, requireRole("ADMIN", "CITIZEN"), simulatePayment);
 

@@ -933,6 +933,7 @@ function App() {
                 role={role}
                 apiBaseUrl={API_BASE_URL}
                 onBackToProfile={() => navigateTo('')}
+                onViewAppeals={() => navigateTo('appeals')}
                 onLogout={handleLogout}
               />
             )
